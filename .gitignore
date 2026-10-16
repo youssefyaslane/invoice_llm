@@ -1,0 +1,16 @@
+# Factures et résultats d'extraction : jamais dans le dépôt
+Data/
+Output/
+*.pdf
+*.xlsx
+
+# Secrets (accès SharePoint)
+.env
+*.pem
+*.pfx
+
+# Environnements Python et caches
+.venv/
+.venv-llm/
+__pycache__/
+attendu.json

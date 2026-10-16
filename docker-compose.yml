@@ -1,0 +1,52 @@
+# Test d'extraction de factures avec un LLM local (Ollama, CPU uniquement).
+#   docker compose up -d ollama                                  -> démarre le serveur (le modèle est téléchargé au 1er test)
+#   docker compose run --rm test                                 -> teste Data/INV-55868.pdf
+#   docker compose run --rm test Data/G133453773.pdf             -> teste une autre facture
+#   MODELE=qwen2.5:3b docker compose run --rm test               -> autre modèle
+name: facture-llm
+
+services:
+  ollama:
+    build: ./ollama-cpu
+    image: ollama-cpu
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Télécharge le modèle (rien à faire s'il est déjà présent), puis s'arrête
+  ollama-pull:
+    image: ollama-cpu
+    environment:
+      OLLAMA_HOST: ollama:11434
+      MODELE: ${MODELE:-qwen2.5:3b}
+    entrypoint: ["sh", "-c", "ollama pull $${MODELE}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  test:
+    build: ./test-llm
+    image: facture-test-llm
+    profiles: ["test"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-qwen2.5:3b}
+    volumes:
+      - ./test_llm_facture.py:/app/test_llm_facture.py:ro
+      - ./attendu.json:/app/attendu.json:ro   # valeurs exactes (hors dépôt git), facultatif
+      - ./Data:/app/Data:ro
+      - ./Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+volumes:
+  ollama:
