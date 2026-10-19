@@ -54,6 +54,7 @@ Le texte vient d'un PDF à colonnes mélangées : une étiquette et sa valeur pe
 - quantite, prix_unitaire : recopiés de la ligne de l'article ; null s'ils n'y sont pas écrits.
 - prix : recopie le dernier montant écrit sur la ligne de l'article. Ne calcule jamais un montant.
 - Ne sont pas des articles : taxe (VAT, TVA, Tax), sous-total, total, montant dû (Amount due), montant payé.
+- Ignore les articles dont le prix est 0 : ne les mets pas dans la liste.
 - total : montant total de la facture, taxes comprises.
 - Montants : nombres à point décimal, sans devise ni séparateur de milliers."""
 
@@ -112,17 +113,39 @@ def nom_commercial(nom, texte):
     return nom
 
 
+MENTIONS_LEGALES = re.compile(r"\b(au capital de|RCS|SIREN|Registered office|Registered in|Company (?:no|number))\b", re.I)
+FORMES_JURIDIQUES = {"sas", "sarl", "sa", "ltd", "limited", "llc", "inc", "gmbh", "plc"}
+
+
+def nom_pied_de_page(texte):
+    """Nom de société des mentions légales (capital, RCS, SIREN...), sur la même ligne ou juste au-dessus :
+    "OVH - 2 rue kellermann ..." puis "SAS au capital de ... RCS ..." -> "OVH"."""
+    lignes = texte.splitlines()
+    for j, ligne in enumerate(lignes):
+        m = MENTIONS_LEGALES.search(ligne)
+        if not m:
+            continue
+        for candidat in (ligne[:m.start()], lignes[j - 1] if j else ""):
+            nom = re.split(r" - |,", candidat)[0].strip(" -,")
+            # un nom de société : des lettres, pas d'étiquette ("No:") ni de numéro d'immatriculation
+            if (nom and "netis" not in nom.lower() and nom.lower() not in FORMES_JURIDIQUES and ":" not in nom
+                    and re.search(r"[A-Za-z]", nom) and len(re.findall(r"\d", nom)) < 3 and len(nom) <= 40):
+                return nom
+    return None
+
+
 def corriger_fournisseur(url, modele, messages, rep, data):
     """NETIS est le client : si le modèle l'a pris pour le fournisseur, on lui repose la question.
     Le début de la conversation est identique, donc Ollama réutilise la lecture déjà faite de la facture."""
     client = data.get("fournisseur")
     if "netis" not in str(client).lower():
         return
+    # Sans la 1re réponse du modèle, pour qu'il ne la répète pas ; le début (facture) reste en cache
     suite = messages + [
-        rep["message"],
-        {"role": "user", "content": "NETIS est le client, pas le fournisseur. Quel est le nom de la société qui "
-                                    "émet la facture (après \"Issued by\", \"From\" ou en en-tête) ? "
-                                    "Réponds seulement par ce nom, recopié du texte."},
+        {"role": "user", "content": "NETIS est le client de cette facture, pas le fournisseur. Quel est le nom de "
+                                    "l'autre société, celle qui émet la facture et reçoit le paiement ? Cherche après "
+                                    "\"Issued by\" ou \"From\", dans le pied de page (adresse, capital, RCS, SIREN, "
+                                    "TVA) ou le site web. Réponds seulement par ce nom, recopié du texte."},
     ]
     t0 = time.time()
     reponse, _ = appeler_ollama(url, modele, suite, {"type": "object", "properties": {"fournisseur": TXT},
@@ -132,6 +155,8 @@ def corriger_fournisseur(url, modele, messages, rep, data):
     # Réponse encore NETIS ou absente du PDF : on retire NETIS du nom collé ("NETIS Holding Ltd c/o ...")
     if "netis" in nouveau.lower() or nouveau.lower() not in texte.lower():
         nouveau = retirer_netis(nouveau if "netis" in nouveau.lower() else client) or nouveau
+    if "netis" in nouveau.lower():
+        nouveau = nom_pied_de_page(texte) or nouveau
     nouveau = nom_commercial(nouveau, texte)
     print(f"Correction : fournisseur « {client} » -> « {nouveau} » "
           f"(question reposée au modèle, {time.time() - t0:.1f} s)")
@@ -219,12 +244,14 @@ def completer_ligne(a, ligne):
 
 
 def corriger_articles(data, texte):
-    """Corrige les articles avec le texte du PDF : retire les lignes de taxe/total et, si la description
+    """Corrige les articles avec le texte du PDF : retire les lignes de taxe/total et les articles à 0 et, si la description
     n'est pas sur la ligne du PDF qui se termine par le prix, la remplace par le libellé de cette ligne."""
     articles = []
     for a in data.get("articles") or []:
         if est_non_article(a.get("description") or ""):
             print(f"Correction : article « {a.get('description')} » retiré (taxe ou total)")
+        elif a.get("prix") == 0:
+            print(f"Correction : article « {a.get('description')} » retiré (prix 0)")
         else:
             articles.append(a)
     # Prix absent du PDF (ex. "5,000 contacts" lu comme 5000) : ce n'est pas un article
@@ -260,7 +287,6 @@ def corriger_articles(data, texte):
 
     # 2e passage : les autres prennent le libellé d'une ligne d'article libre qui se termine par leur prix
     for a in a_corriger:
-        trouve = False
         for j, ligne, m, libelle in lignes:
             if j in utilisees or m not in ecritures(a["prix"]) or est_non_article(libelle):
                 continue
@@ -269,12 +295,7 @@ def corriger_articles(data, texte):
                 print(f"Correction : description « {a.get('description')} » -> « {libelle} » (lue sur la ligne du PDF)")
                 a["description"] = libelle
                 completer_ligne(a, ligne)
-                trouve = True
                 break
-        # Article à 0 qui ne correspond à aucune ligne de la facture (ex. "Looking for our W-9?")
-        if not trouve and a.get("prix") == 0:
-            print(f"Correction : article « {a.get('description')} » retiré (à 0, aucune ligne dans la facture)")
-            articles.remove(a)
 
 
 def controles(data, texte):
