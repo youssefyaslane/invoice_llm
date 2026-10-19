@@ -42,7 +42,8 @@ SYSTEME = """Extrais de la facture : le fournisseur, la date de paiement, la dev
 Le texte vient d'un PDF à colonnes mélangées : une étiquette et sa valeur peuvent être sur des lignes différentes.
 - fournisseur : nom de la société qui émet la facture et reçoit le paiement (jamais un nom de produit).
 - Si la description d'un article contient "ISO", le fournisseur est "ISO".
-- date_paiement : date de paiement si elle est écrite, sinon date d'échéance ("Due Date", "Due on", "Échéance").
+- date_paiement : date de paiement si elle est écrite, sinon date d'échéance ("Due Date", "Due on", "Échéance"),
+  sinon date de la facture. Jamais une date de période de service ou d'abonnement.
 - date_paiement est toujours au format JJ/MM/AAAA.
 - devise : code ISO à 3 lettres (USD, EUR, GBP, MAD...).
 - articles : un article par ligne qui contient des montants, dans l'ordre. Les lignes de texte sans montant
@@ -54,7 +55,7 @@ Le texte vient d'un PDF à colonnes mélangées : une étiquette et sa valeur pe
 - quantite, prix_unitaire : recopiés de la ligne de l'article ; null s'ils n'y sont pas écrits.
 - prix : recopie le dernier montant écrit sur la ligne de l'article. Ne calcule jamais un montant.
 - Ne sont pas des articles : taxe (VAT, TVA, Tax), sous-total, total, montant dû (Amount due), montant payé.
-- Ignore les articles dont le prix est 0 : ne les mets pas dans la liste.
+- Inclus aussi les articles dont le prix est 0.
 - total : montant total de la facture, taxes comprises.
 - Montants : nombres à point décimal, sans devise ni séparateur de milliers."""
 
@@ -66,7 +67,9 @@ ATTENDU = json.loads(FICHIER_ATTENDU.read_text(encoding="utf-8")) if FICHIER_ATT
 
 def extraire_texte(pdf_path):
     with pdfplumber.open(pdf_path) as pdf:
-        return "\n".join(p.extract_text(x_tolerance=1) or "" for p in pdf.pages)
+        texte = "\n".join(p.extract_text(x_tolerance=1) or "" for p in pdf.pages)
+    # certains PDF insèrent un tiret "—" au milieu des mots : "Ju—n 24" -> "Jun 24", "Amou— nt" -> "Amount"
+    return re.sub(r"(?<=\w)—\s?(?=\w)", "", texte)
 
 
 def appeler_ollama(url, modele, messages, schema=SCHEMA):
@@ -91,6 +94,30 @@ def retirer_netis(nom):
     if re.search(r"\bc/o\b", nom, re.I):
         return re.split(r"\bc/o\b", nom, flags=re.I)[-1].strip(" ,")
     return re.sub(r"\bNETIS\b(\s+(Holding|Group)\b)?(\s+(Ltd|SA|SARL|SAS)\b\.?)?", "", nom, flags=re.I).strip(" ,-")
+
+
+FORME_JURIDIQUE_FIN = re.compile(
+    r"[\s,]+(Inc|Ltd|LLC|L\.L\.C|Limited|Corp|Corporation|Co|Pty|Plc|GmbH|SAS|SARL|SA|S\.A|SL|SLU|S\.L|S\.L\.U)\.?$", re.I)
+
+
+def sans_forme_juridique(nom):
+    """Nom du fournisseur sans sa forme juridique : "BitTitan, Inc." -> "BitTitan", "AG Grid Ltd." -> "AG Grid"."""
+    while nom and FORME_JURIDIQUE_FIN.search(nom):
+        nom = FORME_JURIDIQUE_FIN.sub("", nom).strip(" ,")
+    return nom
+
+
+# Nom retenu pour les fournisseurs qui facturent sous plusieurs entités (filiale, pays...)
+NOMS_FOURNISSEURS = {r"^Microsoft\b": "Microsoft", r"^Adobe\b": "Adobe", r"^Freepik\b": "Magnific"}
+
+
+def nom_fournisseur(nom):
+    """Nom final du fournisseur : sans forme juridique, puis nom retenu dans NOMS_FOURNISSEURS."""
+    nom = sans_forme_juridique(nom)
+    for motif, retenu in NOMS_FOURNISSEURS.items():
+        if nom and re.search(motif, nom, re.I):
+            return retenu
+    return nom
 
 
 def nettoyer_nom(nom):
@@ -163,7 +190,7 @@ def corriger_fournisseur(url, modele, messages, rep, data):
     data["fournisseur"] = nouveau
 
 
-FORMATS_DATE = ["%d/%m/%Y", "%d %b %Y", "%d %B %Y", "%Y-%m-%d", "%b %d, %Y", "%B %d, %Y", "%d.%m.%Y", "%d-%m-%Y"]
+FORMATS_DATE = ["%d/%m/%Y", "%m/%d/%Y", "%d-%b-%Y", "%d/%b/%Y", "%d %b %Y", "%d %B %Y", "%d %b, %Y", "%d %B, %Y", "%Y-%m-%d", "%b %d, %Y", "%B %d, %Y", "%d.%m.%Y", "%d-%m-%Y"]
 
 
 MOIS_FR = {"janvier": "January", "février": "February", "fevrier": "February", "mars": "March", "avril": "April",
@@ -183,15 +210,32 @@ def normaliser_date(texte):
     return texte
 
 
-DATE_TEXTE = r"(\d{1,2}[/.-]\d{1,2}[/.-]\d{4}|\d{4}-\d{2}-\d{2}|[A-Za-zéû]+\.? \d{1,2},? \d{4}|\d{1,2} [A-Za-zéû]+\.? \d{4})"
-ETIQUETTES_PAIEMENT = ["date paid", "paid on", "payment date", "date de paiement", "prélevé le", "due date", "date due", "due on",
-                       "date d'échéance", "échéance"]
+DATE_TEXTE = (r"(\d{1,2}[/.-]\d{1,2}[/.-]\d{4}|\d{4}-\d{2}-\d{2}|[A-Za-zéû]+\.? \d{1,2},? \d{4}"
+              r"|\d{1,2}[ /-][A-Za-zéû]+\.?,?[ /-]\d{4})")
+# Par ordre de priorité : paiement, puis échéance, puis date de la facture
+ETIQUETTES_PAIEMENT = ["date paid", "paid date", "paid on", "payment date", "date de paiement", "prélevé le",
+                       "due date", "date due", "due on", "date d'échéance", "échéance",
+                       "invoice date", "date de facture", "date d'émission", "document date", "date"]
+
+
+ADRESSE_US = re.compile(r"\b[A-Z]{2},?\s+\d{5}(?:-\d{4})?\b")  # code d'État + code postal : "TX 78731"
+
+
+def date_americaine(date, texte):
+    """Facture d'un fournisseur américain (adresse US dans le PDF) : une date ambiguë recopiée du PDF
+    est au format MM/JJ/AAAA. "03/06/2026" -> "06/03/2026" (6 mars)."""
+    m = re.fullmatch(r"(\d{2})/(\d{2})/(\d{4})", str(date))
+    if (m and m[1] != m[2] and int(m[1]) <= 12 and int(m[2]) <= 12 and date in texte
+            and ADRESSE_US.search(texte) and re.search(r"\b(USA|United States)\b", texte)):
+        return f"{m[2]}/{m[1]}/{m[3]}"
+    return date
 
 
 def date_dans_texte(texte):
     """Date de paiement lue dans le PDF après son étiquette ("Date Paid: October 12, 2026"), sinon d'échéance."""
     for etiquette in ETIQUETTES_PAIEMENT:
-        m = re.search(re.escape(etiquette) + r"\s*:?\s*" + DATE_TEXTE, texte, re.I)
+        debut = r"^\s*" if etiquette == "date" else r"\b"
+        m = re.search(debut + re.escape(etiquette) + r"\s*:?\s*" + DATE_TEXTE, texte, re.I | re.M)
         if m and re.fullmatch(r"\d{2}/\d{2}/\d{4}", normaliser_date(m[1])):
             return normaliser_date(m[1])
     return None
@@ -212,8 +256,17 @@ def ecritures(v):
 MONTANT = re.compile(r"(?<![\d.,])(?:\d{1,3}(?:[ \u00a0]\d{3})+,\d{2}|\d{1,3}(?:,\d{3})+\.\d{2}|\d+[.,]\d{2})(?!\d)")
 # Débuts de libellé qui désignent une taxe ou un total, jamais un article
 NON_ARTICLES = ("vat", "tva", "tax", "subtotal", "sub-total", "sous-total", "sous total", "total", "amount due", "amount paid",
-                "balance", "montant dû", "montant du", "montant payé", "net à payer", "reste à payer")
+                "balance", "invoice amount", "payment", "montant dû", "montant du", "montant payé", "net à payer", "reste à payer")
 DEVISES = re.compile(r"[$€£]|\b(?:USD|EUR|GBP|CHF|MAD)\b")
+
+
+MOTS_TOTAUX = re.compile(r"\b(tax|taxes|tva|vat|total|subtotal|sous-total|sous total|amount due|balance)\b", re.I)
+
+
+def meme_montant(m, prix):
+    """Le montant lu m vaut prix, y compris quand une quantité est collée devant au format français :
+    "1 250,00" (quantité 1 + 250,00) vaut 250."""
+    return any(m[i:].strip() in ecritures(prix) for i in [0] + [k for k, c in enumerate(m) if c == " "])
 
 
 def est_non_article(libelle):
@@ -221,7 +274,7 @@ def est_non_article(libelle):
 
 
 def completer_ligne(a, ligne):
-    """Complète l'article avec sa ligne du PDF ("Read Pro Plan 2 $19.75 $39.50") :
+    """Complète l'article avec sa ligne du PDF ("Pro Plan 2 $10.00 $20.00") :
     - un entier juste avant le 1er montant est la quantité (colonne Qty), pas une partie de la description ;
     - si quantite est connue, le montant prix / quantite écrit sur la ligne est le prix unitaire."""
     desc = (a.get("description") or "").strip()
@@ -243,15 +296,49 @@ def completer_ligne(a, ligne):
             a["prix_unitaire"] = unitaire
 
 
+def forme(ligne):
+    """Forme d'une ligne d'article : nombre de montants, et présence d'une quantité entière avant le 1er montant."""
+    premier = MONTANT.search(ligne)
+    avant = DEVISES.sub("", ligne[:premier.start()]) if premier else ""
+    return len(MONTANT.findall(ligne)), bool(re.search(r"\s\d+\s*$", " " + avant))
+
+
+def ajouter_oublies(data, toutes, lignes, positions):
+    """Ajoute les lignes d'article oubliées par le modèle (ex. articles à 0 en fin de facture) : même forme que les
+    articles trouvés, libre, pas une taxe ni un total, et la somme des articles reste égale au total."""
+    formes = {forme(toutes[j]) for j in positions.values()}
+    total = data.get("total")
+    for j, ligne, m, libelle in lignes:
+        # au moins 2 montants (quantité/prix/total) : une ligne à 1 seul montant est trop ambiguë
+        if (j in positions.values() or forme(ligne) not in formes or forme(ligne)[0] < 2
+                or MOTS_TOTAUX.search(libelle) or total is None):
+            continue
+        prix = float(m.replace(" ", "").replace("\u00a0", "").replace(",", ".") if "," in m[-3:]
+                     else m.replace(",", ""))
+        somme = round(sum(a.get("prix") or 0 for a in data["articles"]), 2)
+        if prix != 0 and prix != round(total - somme, 2):
+            continue
+        desc = re.sub(r"\s\d+$", "", libelle).strip()
+        precedente = toutes[j - 1] if j else ""
+        # ligne du dessus = nom de l'article (OVH), si c'est du texte et non des dates ou des montants
+        if not MONTANT.search(precedente) and not est_non_article(precedente) and re.search(r"[A-Za-zÀ-ÿ]{3}", precedente):
+            desc = f"{precedente.strip()} {desc}".strip()
+        article = {"description": desc, "quantite": None, "prix_unitaire": None, "prix": prix}
+        completer_ligne(article, ligne)
+        # insérée après le dernier article situé plus haut dans le PDF
+        avant = [i for i, a in enumerate(data["articles"]) if positions.get(id(a), -1) < j]
+        data["articles"].insert(avant[-1] + 1 if avant else 0, article)
+        positions[id(article)] = j
+        print(f"Correction : article oublié ajouté « {desc} » {prix} (lu sur la ligne du PDF)")
+
+
 def corriger_articles(data, texte):
-    """Corrige les articles avec le texte du PDF : retire les lignes de taxe/total et les articles à 0 et, si la description
+    """Corrige les articles avec le texte du PDF : retire les lignes de taxe/total et, si la description
     n'est pas sur la ligne du PDF qui se termine par le prix, la remplace par le libellé de cette ligne."""
     articles = []
     for a in data.get("articles") or []:
         if est_non_article(a.get("description") or ""):
             print(f"Correction : article « {a.get('description')} » retiré (taxe ou total)")
-        elif a.get("prix") == 0:
-            print(f"Correction : article « {a.get('description')} » retiré (prix 0)")
         else:
             articles.append(a)
     # Prix absent du PDF (ex. "5,000 contacts" lu comme 5000) : ce n'est pas un article
@@ -270,32 +357,43 @@ def corriger_articles(data, texte):
             lignes.append((j, ligne, montants[-1], libelle))
 
     # 1er passage : articles dont la description est bien sur une ligne qui se termine par leur prix
-    utilisees, a_corriger = set(), []
+    utilisees, a_corriger, positions = set(), [], {}
     for a in articles:
         if not isinstance(a.get("prix"), (int, float)):
             continue
         desc = (a.get("description") or "").lower()
         # description sur la ligne des montants, ou sur la ligne juste au-dessus
-        j = next((j for j, ligne, m, _ in lignes if j not in utilisees and m in ecritures(a["prix"]) and desc
+        j = next((j for j, ligne, m, _ in lignes if j not in utilisees and meme_montant(m, a["prix"]) and desc
                   and (desc[:10] in ligne.lower() or desc[-10:] in ligne.lower()
                        or (j > 0 and desc[:10] in toutes[j - 1].lower()))), None)
         if j is None:
             a_corriger.append(a)
         else:
             utilisees.add(j)
+            positions[id(a)] = j
             completer_ligne(a, next(ligne for k, ligne, _, _ in lignes if k == j))
 
     # 2e passage : les autres prennent le libellé d'une ligne d'article libre qui se termine par leur prix
     for a in a_corriger:
+        trouve = False
         for j, ligne, m, libelle in lignes:
-            if j in utilisees or m not in ecritures(a["prix"]) or est_non_article(libelle):
+            if j in utilisees or not meme_montant(m, a["prix"]) or est_non_article(libelle):
                 continue
             if re.search(r"[A-Za-zÀ-ÿ]", libelle):
                 utilisees.add(j)
+                positions[id(a)] = j
                 print(f"Correction : description « {a.get('description')} » -> « {libelle} » (lue sur la ligne du PDF)")
                 a["description"] = libelle
                 completer_ligne(a, ligne)
+                trouve = True
                 break
+        # Article à 0 qui ne correspond à aucune ligne de la facture (ex. "Looking for our W-9?")
+        if not trouve and a.get("prix") == 0:
+            print(f"Correction : article « {a.get('description')} » retiré (à 0, aucune ligne dans la facture)")
+            articles.remove(a)
+
+    if positions:
+        ajouter_oublies(data, toutes, lignes, positions)
 
 
 def controles(data, texte):
@@ -350,10 +448,17 @@ def main():
     data, rep = appeler_ollama(args.url, args.modele, messages)
     duree = time.time() - t0
     corriger_fournisseur(args.url, args.modele, messages, rep, data)
+    data["fournisseur"] = nom_fournisseur(data.get("fournisseur"))
     data["date_paiement"] = normaliser_date(data.get("date_paiement"))
-    if not re.fullmatch(r"\d{2}/\d{2}/\d{4}", str(data["date_paiement"])) and date_dans_texte(texte):
-        print(f"Correction : date_paiement « {data['date_paiement']} » -> « {date_dans_texte(texte)} » (lue dans le PDF)")
-        data["date_paiement"] = date_dans_texte(texte)
+    # La date écrite à côté de son étiquette dans le PDF passe avant celle du modèle
+    date_pdf = date_dans_texte(texte)
+    if date_pdf and date_pdf != data["date_paiement"]:
+        print(f"Correction : date_paiement « {data['date_paiement']} » -> « {date_pdf} » (lue dans le PDF)")
+        data["date_paiement"] = date_pdf
+    if date_americaine(data["date_paiement"], texte) != data["date_paiement"]:
+        print(f"Correction : date_paiement « {data['date_paiement']} » -> « {date_americaine(data['date_paiement'], texte)} » "
+              "(facture américaine : MM/JJ/AAAA)")
+        data["date_paiement"] = date_americaine(data["date_paiement"], texte)
     corriger_articles(data, texte)
     print(f"Temps : {duree:.1f} s  (chargement {rep.get('load_duration', 0) / 1e9:.1f} s, "
           f"lecture {rep.get('prompt_eval_count', 0)} tokens en {rep.get('prompt_eval_duration', 0) / 1e9:.1f} s, "

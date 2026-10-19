@@ -48,5 +48,22 @@ services:
       ollama-pull:
         condition: service_completed_successfully
 
+  # Même test, mais le LLM seul : toutes les règles dans le prompt, sans correction par le code
+  test-prompt:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test_llm_prompt.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-qwen2.5:3b}
+    volumes:
+      - ./test_llm_prompt.py:/app/test_llm_prompt.py:ro
+      - ./attendu.json:/app/attendu.json:ro
+      - ./Data:/app/Data:ro
+      - ./Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
 volumes:
   ollama:
