@@ -322,6 +322,16 @@ def est_non_article(libelle):
     return libelle.strip().lower().startswith(NON_ARTICLES)
 
 
+def bloc_au_dessus(toutes, j, n=5):
+    """Lignes sans montant juste au-dessus de la ligne de montants j (titre + en-têtes, ex. Microsoft)."""
+    bloc = []
+    for k in range(j - 1, max(-1, j - n - 1), -1):
+        if MONTANT.search(toutes[k]):
+            break
+        bloc.insert(0, toutes[k])
+    return "\n".join(bloc)
+
+
 def corriger_prix_ligne(articles, texte):
     """Le modèle a pris le prix unitaire au lieu du montant de la ligne : sur la ligne du PDF qui contient
     la description, le prix est un montant mais pas le dernier -> prix = dernier montant, prix_unitaire = ancien prix."""
@@ -332,7 +342,7 @@ def corriger_prix_ligne(articles, texte):
         # déjà juste si une ligne de cet article se termine par ce prix (ex. AG Grid : 4 lignes de même description)
         toutes = texte.splitlines()
         lignes_article = [l for j, l in enumerate(toutes) if MONTANT.findall(l)
-                          and (desc[:10] in l.lower() or (j > 0 and desc[:10] in toutes[j - 1].lower()))]
+                          and (desc[:10] in l.lower() or desc[:10] in bloc_au_dessus(toutes, j).lower())]
         if any(meme_montant(MONTANT.findall(l)[-1], prix) for l in lignes_article):
             continue
         for ligne in lignes_article:
@@ -344,6 +354,8 @@ def corriger_prix_ligne(articles, texte):
                                     else dernier.replace(",", ""))
                 print(f"Correction : prix {prix} -> {total_ligne} (prix unitaire pris pour le montant de la ligne)")
                 a["prix_unitaire"], a["prix"] = prix, total_ligne
+                if a.get("quantite") is None and prix and float(total_ligne / prix).is_integer():
+                    a["quantite"] = int(total_ligne / prix)
                 break
 
 
@@ -368,6 +380,13 @@ def completer_ligne(a, ligne):
             print(f"Correction : quantite {q[1]} (écrite après la description sur la ligne du PDF)")
             a["quantite"] = int(q[1])
 
+    if a.get("quantite") is None and isinstance(a.get("prix"), (int, float)):
+        for pu, n, mt in re.findall(r"([\d.,]+\d)\s+(\d+)\s+[$€£]?\s*([\d.,]+\d)", ligne):
+            pu_v, mt_v = montant_cellule(pu), montant_cellule(mt)
+            if pu_v and mt_v is not None and round(pu_v * int(n), 2) == round(mt_v, 2) == round(abs(a["prix"]), 2):
+                print(f"Correction : quantite {n} et prix_unitaire {pu_v} (lus sur la ligne du PDF : {pu} x {n} = {mt})")
+                a["quantite"], a["prix_unitaire"] = int(n), pu_v
+                break
     q, prix = a.get("quantite"), a.get("prix")
     if a.get("prix_unitaire") is None and isinstance(q, (int, float)) and q > 0 and isinstance(prix, (int, float)):
         unitaire = round(prix / q, 2)
@@ -393,8 +412,13 @@ def proximite(desc, toutes, j):
     desc, ligne = desc.lower(), toutes[j].lower()
     if desc and (desc[:10] in ligne or desc[-10:] in ligne or (j > 0 and desc[:10] in toutes[j - 1].lower())):
         return 1.0
+    # la ligne porte son propre nom ("Networking 383.28 383.28") et ce n'est pas la description : autre article
+    premier = MONTANT.search(toutes[j])
+    nom_ligne = REFERENCE.sub("", DEVISES.sub("", toutes[j][:premier.start()] if premier else ""))
+    if re.search(r"[A-Za-zÀ-ÿ]{3}", nom_ligne) and not est_non_article(nom_ligne):
+        return 0.0
     mots = mots_article(desc)
-    fenetre = " ".join(toutes[max(0, j - 3):j + 3]).lower()
+    fenetre = " ".join(toutes[max(0, j - 4):j + 3]).lower()
     return sum(m in fenetre for m in mots) / len(mots) if mots else 0.0
 
 
@@ -512,6 +536,35 @@ def ajouter_sections(articles, toutes, positions):
             a["description"] = premier[1].strip()
 
 
+def retirer_excedent(data, toutes, positions):
+    """Article en double (ex. Azure : "Usage Charges - Microsoft Azure Standard" ET "Storage" au même prix) :
+    la somme dépasse le total exactement du prix d'un article qui a un jumeau au même prix -> on le retire,
+    de préférence celui dont la description est un titre de section du PDF, sinon celui sans ligne dans le PDF."""
+    articles, total = data.get("articles") or [], data.get("total")
+    titres = {l.strip().lower() for l in toutes if not MONTANT.search(l)}
+    # Tous les articles nommés par un titre de section et qui ont un jumeau au même prix sous leur vrai nom
+    # (Azure : "Usage Charges..." + Storage, Networking, Compute) : retirés ensemble si la somme tombe alors juste
+    titres_doubles = [a for a in articles if (a.get("description") or "").strip().lower() in titres and a.get("prix")
+                      and any(b is not a and norm(b.get("prix")) == norm(a["prix"]) for b in articles)]
+    reste = round(sum(a.get("prix") or 0 for a in articles if a not in titres_doubles), 2)
+    if titres_doubles and isinstance(total, (int, float)) and reste == round(total, 2):
+        for a in titres_doubles:
+            print(f"Correction : article « {a.get('description')} » {a['prix']} retiré (titre de section en double)")
+            articles.remove(a)
+    while isinstance(total, (int, float)) and articles:
+        excedent = round(sum(a.get("prix") or 0 for a in articles) - total, 2)
+        jumeaux = [a for a in articles if a.get("prix") and round(a["prix"], 2) == excedent
+                   and sum(round(b.get("prix") or 0, 2) == excedent for b in articles) >= 2]
+        if excedent <= 0 or not jumeaux:
+            return
+        a = (next((a for a in jumeaux if (a.get("description") or "").strip().lower() in titres), None)
+             or next((a for a in jumeaux if id(a) not in positions), None))
+        if a is None:
+            return
+        print(f"Correction : article « {a.get('description')} » {a['prix']} retiré (en double : la somme dépassait le total)")
+        articles.remove(a)
+
+
 def corriger_articles(data, texte):
     """Corrige les articles avec le texte du PDF : retire les lignes de taxe/total et, si la description
     n'est pas sur la ligne du PDF qui se termine par le prix, la remplace par le libellé de cette ligne."""
@@ -519,6 +572,8 @@ def corriger_articles(data, texte):
     for a in data.get("articles") or []:
         if est_non_article(a.get("description") or ""):
             print(f"Correction : article « {a.get('description')} » retiré (taxe ou total)")
+        elif "netis" in (a.get("description") or "").lower():
+            print(f"Correction : article « {a.get('description')} » retiré (nom du client : ligne récapitulative)")
         else:
             articles.append(a)
     corriger_prix_ligne(articles, texte)
@@ -586,6 +641,7 @@ def corriger_articles(data, texte):
     if positions:
         ajouter_oublies(data, toutes, lignes, positions)
     corriger_signes(data)
+    retirer_excedent(data, toutes, positions)
     total = data.get("total")
     for a in list(articles):
         autres = round(sum(b.get("prix") or 0 for b in articles if b is not a), 2)
