@@ -48,6 +48,23 @@ services:
       ollama-pull:
         condition: service_completed_successfully
 
+  # Toutes les factures d'un dossier (Data/2026 par défaut) -> Output/factures_<dossier>.xlsx
+  main:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "main.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-qwen2.5:3b}
+    volumes:
+      - ./main.py:/app/main.py:ro
+      - ./test_llm_facture.py:/app/test_llm_facture.py:ro
+      - ./Data:/app/Data:ro
+      - ./Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
   # Même test, mais le LLM seul : toutes les règles dans le prompt, sans correction par le code
   test-prompt:
     image: facture-test-llm
