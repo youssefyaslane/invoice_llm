@@ -412,7 +412,7 @@ def proximite(desc, toutes, j):
     desc, ligne = desc.lower(), toutes[j].lower()
     if desc and (desc[:10] in ligne or desc[-10:] in ligne or (j > 0 and desc[:10] in toutes[j - 1].lower())):
         return 1.0
-    # la ligne porte son propre nom ("Networking 383.28 383.28") et ce n'est pas la description : autre article
+    # la ligne porte son propre nom ("Networking 100.00 100.00") et ce n'est pas la description : autre article
     premier = MONTANT.search(toutes[j])
     nom_ligne = REFERENCE.sub("", DEVISES.sub("", toutes[j][:premier.start()] if premier else ""))
     if re.search(r"[A-Za-zÀ-ÿ]{3}", nom_ligne) and not est_non_article(nom_ligne):
