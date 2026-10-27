@@ -12,5 +12,9 @@ Output/
 # Environnements Python et caches
 .venv/
 .venv-llm/
+.venv-docling/
 __pycache__/
 attendu.json
+
+# Noms et adresses à masquer (données personnelles)
+masquage_local.json

@@ -39,6 +39,8 @@ SCHEMA = {"type": "object", "properties": CHAMPS, "required": list(CHAMPS)}
 PROMPT = """Extrais de la facture : le fournisseur, la date de paiement, la devise, les articles achetés et le total.
 Le texte vient d'un PDF à colonnes mélangées : une étiquette et sa valeur peuvent être sur des lignes différentes,
 et une même ligne peut coller deux colonnes.
+RÈGLE ABSOLUE : tous les nombres (prix, quantités, prix unitaires, total) sont recopiés tels qu'écrits dans la facture.
+Ne calcule rien : pas d'addition, pas de multiplication, pas d'arrondi. Un nombre absent de la facture est null.
 
 FOURNISSEUR
 - C'est la société qui émet la facture et reçoit le paiement. Cherche-la après "Issued by" ou "From", dans l'en-tête,
@@ -58,15 +60,19 @@ ARTICLES
 - Un article par ligne du tableau d'articles qui contient des montants, dans l'ordre. Inclus aussi les articles à 0.
 - Ne sont pas des articles : titre de section (ligne juste avant les en-têtes de colonnes), taxe (VAT, TVA, Tax),
   sous-total, total, montant dû ou payé (Amount due, Balance, Payments, Invoice Amount), notes et publicités,
+  les lignes de paiement ("Paid via", "Payment", carte bancaire, "Payé par"),
   et les nombres sans décimales (ex. un nombre de contacts).
 - description : nom de l'article recopié sans traduire, sans la quantité ni les montants. Le texte sans montant juste
   au-dessus ou en dessous fait partie de la description. Si la ligne n'a que des dates et des montants,
   prends le titre de section au-dessus.
 - quantite, prix_unitaire : recopiés de la ligne de l'article ; null s'ils n'y sont pas écrits.
   Un nombre entier juste avant le prix unitaire est la quantité.
+- Un nombre suivi d'un mot ("5,000 contacts", "10 Sites", "48TB") fait partie de la description :
+  ce n'est ni une quantité, ni un prix, ni un total.
+- prix, prix_unitaire et total sont toujours des montants écrits avec une devise ou deux décimales ("$100.00", "1 234,56 €").
 - prix : dernier montant de la ligne de l'article (montant total de l'article). Ne calcule jamais un montant.
 
-TOTAL : montant total de la facture, taxes comprises.
+TOTAL : montant total écrit sur la facture, taxes comprises. Recopie-le : ne l'additionne jamais.
 
 MONTANTS : nombres à point décimal, sans devise ni séparateur de milliers ("1 234,56 €" = 1234.56 ; "1,234.56" = 1234.56).
 

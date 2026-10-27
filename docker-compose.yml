@@ -82,5 +82,39 @@ services:
       ollama-pull:
         condition: service_completed_successfully
 
+  # Même test que test-prompt, mais le modèle VISION lit l'image des pages au lieu du texte
+  test-vision:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test_llm_vision.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-qwen3-vl:4b}
+    volumes:
+      - ./test_llm_vision.py:/app/test_llm_vision.py:ro
+      - ./test_llm_prompt.py:/app/test_llm_prompt.py:ro
+      - ./attendu.json:/app/attendu.json:ro
+      - ./Data:/app/Data:ro
+      - ./Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # LLM sur le Markdown produit par Docling (Output/docling/*.md) avec un prompt simple généré des champs voulus
+  test-docling:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test_llm_docling.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-qwen2.5:3b}
+    volumes:
+      - ./test_llm_docling.py:/app/test_llm_docling.py:ro
+      - ./attendu.json:/app/attendu.json:ro
+      - ./Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
 volumes:
   ollama:

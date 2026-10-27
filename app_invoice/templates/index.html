@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Extraction de factures</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <header>
+    <h1>Extraction de factures</h1>
+    <p class="sous-titre">LLM local <strong>{{ modele }}</strong> — les factures ne quittent pas le serveur</p>
+  </header>
+
+  <main>
+    <!-- 1. Dépôt des PDF -->
+    <label id="depot" class="depot" for="choix">
+      <input id="choix" type="file" accept="application/pdf,.pdf" multiple hidden>
+      <span class="depot-icone" aria-hidden="true">⬆</span>
+      <span class="depot-texte">Glissez vos factures PDF ici</span>
+      <span class="depot-aide">ou cliquez pour les choisir — plusieurs à la fois possible</span>
+    </label>
+    <p id="message" class="message" hidden></p>
+
+    <!-- 2. Factures déposées et leur avancement -->
+    <section id="bloc-liste" class="carte" hidden>
+      <div class="entete-carte">
+        <h2>Factures déposées</h2>
+        <button id="excel" class="bouton secondaire" type="button" disabled>Exporter Excel (toutes)</button>
+      </div>
+      <table class="liste">
+        <thead><tr><th>Fichier</th><th>État</th><th>Durée</th><th></th></tr></thead>
+        <tbody id="liste"></tbody>
+      </table>
+    </section>
+
+    <!-- 3. Résultat de la facture choisie : modifiable -->
+    <section id="bloc-resultat" class="carte" hidden>
+      <div class="entete-carte">
+        <h2 id="titre-resultat">Résultat</h2>
+        <a id="lien-pdf" class="bouton secondaire" target="_blank" rel="noopener">Ouvrir le PDF</a>
+      </div>
+      <div id="champs" class="champs"></div>
+
+      <div class="entete-carte">
+        <h3 id="titre-liste">Articles</h3>
+        <span id="controle" class="controle"></span>
+      </div>
+      <div class="defilement">
+        <table class="articles">
+          <thead id="entete-articles"></thead>
+          <tbody id="articles"></tbody>
+        </table>
+      </div>
+
+      <div class="actions">
+        <button id="ajouter" class="bouton secondaire" type="button">+ Ajouter une ligne</button>
+        <span class="espace"></span>
+        <span id="etat-enregistrement" class="etat-enregistrement"></span>
+        <button id="annuler" class="bouton secondaire" type="button" disabled>Annuler les modifications</button>
+        <button id="enregistrer" class="bouton" type="button" disabled>Enregistrer</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

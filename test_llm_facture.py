@@ -41,6 +41,8 @@ SCHEMA = {"type": "object", "properties": CHAMPS, "required": list(CHAMPS)}
 
 SYSTEME = """Extrais de la facture : le fournisseur, la date de paiement, la devise, les articles achetés et le total.
 Le texte vient d'un PDF à colonnes mélangées : une étiquette et sa valeur peuvent être sur des lignes différentes.
+- Tous les nombres (prix, quantités, prix unitaires, total) sont recopiés tels qu'écrits dans la facture.
+  Ne calcule rien : pas d'addition, pas de multiplication, pas d'arrondi. Un nombre absent de la facture est null.
 - fournisseur : nom de la société qui émet la facture et reçoit le paiement (jamais un nom de produit).
 - Si la description d'un article contient "ISO", le fournisseur est "ISO".
 - date_paiement : date de paiement si elle est écrite, sinon date d'échéance ("Due Date", "Due on", "Échéance"),
@@ -56,9 +58,10 @@ Le texte vient d'un PDF à colonnes mélangées : une étiquette et sa valeur pe
 - quantite, prix_unitaire : recopiés de la ligne de l'article ; null s'ils n'y sont pas écrits.
 - prix : recopie le dernier montant écrit sur la ligne de l'article. Ne calcule jamais un montant.
 - Ne sont pas des articles : taxe (VAT, TVA, Tax), sous-total, total, montant dû (Amount due), montant payé.
+- Les lignes de paiement ("Paid via", "Payment", carte bancaire, "Payé par") ne sont pas des articles.
 - Un crédit ou un remboursement (montant précédé de "-", "Unused time", "Credit", "Refund", "Avoir") a un prix négatif.
 - Inclus aussi les articles dont le prix est 0.
-- total : montant total de la facture, taxes comprises.
+- total : montant total écrit sur la facture, taxes comprises. Recopie-le : ne l'additionne jamais.
 - Montants : nombres à point décimal, sans devise ni séparateur de milliers."""
 
 # Valeurs exactes des factures de test (hors dépôt git) :
@@ -471,6 +474,28 @@ def ajouter_oublies(data, toutes, lignes, positions):
         print(f"Correction : article oublié ajouté « {desc} » {prix} (lu sur la ligne du PDF)")
 
 
+def signes_du_pdf(articles, texte):
+    """Signe de chaque prix tel qu'écrit sur la ligne de l'article dans le PDF ("-$478.74" -> négatif)."""
+    for a in articles:
+        desc, prix = (a.get("description") or "").lower()[:10], a.get("prix")
+        if not desc or not isinstance(prix, (int, float)) or prix == 0:
+            continue
+        for ligne in texte.splitlines():
+            if desc not in ligne.lower():
+                continue
+            ecrit = next((m for m in MONTANT.finditer(ligne) if meme_montant(m[0], prix)), None)
+            if ecrit:
+                # "-$478.74" ou "-478,74 €" : signe collé au montant (pas le tiret d'une référence "141-95- 1 840,00")
+                negatif = bool(re.search(r"(^|\s)-[$€£]?\s?$", ligne[:ecrit.start()]))
+                if negatif != (prix < 0):
+                    nouveau = -abs(prix) if negatif else abs(prix)
+                    print(f"Correction : article « {a.get('description')} » {prix} -> {nouveau} (signe écrit dans le PDF)")
+                    a["prix"] = nouveau
+                    if isinstance(a.get("prix_unitaire"), (int, float)):
+                        a["prix_unitaire"] = abs(a["prix_unitaire"]) * (-1 if negatif else 1)
+                break
+
+
 def corriger_signes(data):
     """Crédit dont le signe moins a été perdu : si la somme des articles ne vaut le total qu'en passant
     certains prix en négatif (ex. 30.00 - 10.00 = 20.00), ces articles sont des crédits."""
@@ -565,6 +590,27 @@ def retirer_excedent(data, toutes, positions):
         articles.remove(a)
 
 
+def corriger_total(data, texte, toutes):
+    """Total absent du PDF = total calculé par le modèle avec un article en trop (ex. Mailchimp : le paiement
+    "$100.00 Paid via Mastercard" pris pour un 2e article, total 200 au lieu de 100). On retire l'article qui
+    ramène la somme à un montant réellement écrit dans le PDF, en commençant par ceux qui n'ont pas de ligne
+    de montant à leur nom."""
+    articles, total = data.get("articles") or [], data.get("total")
+    if not isinstance(total, (int, float)) or not total or any(e in texte for e in ecritures(total)) or len(articles) < 2:
+        return
+    somme = round(sum(a.get("prix") or 0 for a in articles), 2)
+    sur_sa_ligne = lambda a: any(MONTANT.search(l) and (a.get("description") or "").lower()[:10] in l.lower()
+                                 for l in toutes)
+    for a in sorted(articles, key=sur_sa_ligne):
+        reste = round(somme - (a.get("prix") or 0), 2)
+        if reste > 0 and any(e in texte for e in ecritures(reste)):
+            print(f"Correction : total {total} -> {reste} (absent du PDF) ; article « {a.get('description')} » "
+                  f"{a.get('prix')} retiré (en trop)")
+            articles.remove(a)
+            data["total"] = reste
+            return
+
+
 def corriger_articles(data, texte):
     """Corrige les articles avec le texte du PDF : retire les lignes de taxe/total et, si la description
     n'est pas sur la ligne du PDF qui se termine par le prix, la remplace par le libellé de cette ligne."""
@@ -572,7 +618,7 @@ def corriger_articles(data, texte):
     for a in data.get("articles") or []:
         if est_non_article(a.get("description") or ""):
             print(f"Correction : article « {a.get('description')} » retiré (taxe ou total)")
-        elif "netis" in (a.get("description") or "").lower():
+        elif re.match(r"\s*netis\s+(holding|group)\b", a.get("description") or "", re.I):
             print(f"Correction : article « {a.get('description')} » retiré (nom du client : ligne récapitulative)")
         else:
             articles.append(a)
@@ -638,8 +684,10 @@ def corriger_articles(data, texte):
             print(f"Correction : article « {a.get('description')} » {a.get('prix')} retiré (doublon)")
             articles.remove(a)
 
+    corriger_total(data, texte, toutes)
     if positions:
         ajouter_oublies(data, toutes, lignes, positions)
+    signes_du_pdf(articles, texte)
     corriger_signes(data)
     retirer_excedent(data, toutes, positions)
     total = data.get("total")
@@ -739,6 +787,35 @@ def articles_tableau(pdf_path):
     return articles
 
 
+COLONNES = re.compile(r"\b(description|qty|quantity|quantité|unit price|prix unitaire|amount|montant|total|price|prix)\b", re.I)
+
+
+def articles_lignes(texte):
+    """Articles relus ligne par ligne dans le texte du PDF, entre l'en-tête du tableau ("Description Qty Unit price
+    Amount") et le premier sous-total/total. Une ligne d'article = un nom + un montant à la fin (signe compris) ;
+    l'entier juste avant le premier montant est la quantité. Sert quand la réponse du modèle ne tombe pas juste."""
+    articles, dans_tableau = [], False
+    for ligne in texte.splitlines():
+        if not dans_tableau:
+            dans_tableau = len(set(m.lower() for m in COLONNES.findall(ligne))) >= 2 and not MONTANT.search(ligne)
+            continue
+        montants = list(MONTANT.finditer(ligne))
+        nom = ligne[:montants[0].start()] if montants else ligne
+        if est_non_article(nom) or MOTS_TOTAUX.search(nom):
+            break
+        nom = DEVISES.sub("", nom).strip()
+        if not montants or not re.search(r"[A-Za-zÀ-ÿ]{3}", nom):
+            continue
+        dernier = montants[-1]
+        prix = montant_cellule(dernier[0])
+        if re.search(r"(^|\s)-[$€£]?\s?$", ligne[:dernier.start()]):
+            prix = -prix
+        q = re.search(r"\s(\d+)\s*-?$", " " + nom)
+        articles.append({"description": re.sub(r"\s+\d+\s*-?$", "", nom).strip(), "quantite": int(q[1]) if q else None,
+                         "prix_unitaire": montant_cellule(montants[-2][0]) if len(montants) >= 2 else None, "prix": prix})
+    return articles
+
+
 def extraire_facture(pdf, url, modele, texte=None):
     """Extrait une facture : texte du PDF, réponse du LLM, puis corrections avec le texte du PDF.
     Renvoie (texte, données, réponse Ollama, durée de l'appel principal en secondes)."""
@@ -765,6 +842,13 @@ def extraire_facture(pdf, url, modele, texte=None):
     if tableau and round(sum(a["prix"] for a in tableau), 2) == round(data.get("total") or 0, 2):
         print(f"Correction : {len(tableau)} articles lus directement dans le tableau du PDF (somme = total)")
         data["articles"] = tableau
+    elif round(sum(a.get("prix") or 0 for a in data["articles"]), 2) != round(data.get("total") or 0, 2):
+        # La réponse du modèle ne tombe pas juste : on relit les lignes d'articles du PDF, gardées si elles tombent juste
+        lignes = articles_lignes(texte)
+        if lignes and round(sum(a["prix"] for a in lignes), 2) == round(data.get("total") or 0, 2):
+            print(f"Correction : {len(lignes)} articles relus ligne par ligne dans le PDF (la réponse du modèle "
+                  f"ne tombait pas juste)")
+            data["articles"] = lignes
     return texte, data, rep, duree
 
 
