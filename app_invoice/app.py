@@ -9,7 +9,7 @@ Fichiers : Output/app/<date>_<facture>.pdf (le PDF déposé) et .json (le résul
 
 Usage (depuis le dossier du projet, avec l'environnement Docling ; Ollama doit tourner) :
     .venv-docling/bin/python app_invoice/app.py                    -> http://localhost:8000
-    .venv-docling/bin/python app_invoice/app.py -m gemma3:4b --port 8000
+    .venv-docling/bin/python app_invoice/app.py -m gemma3:4b --port 8000         -> autre modèle (défaut : gemma4:e2b)
 """
 import argparse
 import io
@@ -44,7 +44,7 @@ logging.getLogger("docling").setLevel(logging.WARNING)
 # ---------------------------------------------------------------------------------------------------------------
 TYPE_DOCUMENT = "une facture"
 CHAMPS = {
-    "fournisseur": ("texte", "société qui émet la facture et reçoit le paiement (NETIS est le client, jamais le "
+    "fournisseur": ("texte", "société qui émet la facture et reçoit le paiement (NETIS Holding est le client, jamais le"
                              "fournisseur), sans forme juridique (Inc, Ltd, LLC, SAS...)"),
     "date_paiement": ("texte", "date de paiement, sinon date d'échéance, sinon date de la facture jamais une date de début ou de fin de période d’abonnement , au format JJ/MM/AAAA"),
     "devise": ("texte", "code ISO à 3 lettres (USD, EUR, MAD...)"),
@@ -132,7 +132,7 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 50 * 1024 * 1024  # 50 Mo par envoi
 factures = {}                # id -> facture déposée (statut, résultat...), dans l'ordre de dépôt
 file_attente = queue.Queue()
-reglages = {"modele": "gemma3:4b", "url": "http://localhost:11434"}
+reglages = {"modele": "gemma4:e2b", "url": "http://localhost:11434"}
 
 
 def travailleur():
