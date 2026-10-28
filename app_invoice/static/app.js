@@ -246,10 +246,11 @@ function brouillon() {
 
 const somme = (lignes) => Math.round(lignes.reduce((s, l) => s + (Number(l.prix) || 0), 0) * 100) / 100;
 
-// contrôle : la somme des lignes doit être égale au total écrit sur la facture
+// contrôle : la somme des lignes (TTC), ou la somme des lignes + taxe (lignes HT), doit faire le total de la facture
 function majControle() {
   const d = donnees(facture(choisie));
   const total = d.total;
+  const taxe = Number(d.taxe) || 0;
   const s = somme(d[meta.liste.nom] || []);
   const el = $("controle");
   if (total == null || !meta.liste.champs.some((c) => c.nom === "prix")) {
@@ -258,8 +259,11 @@ function majControle() {
   } else if (Math.abs(s - total) < 0.01) {
     el.textContent = `✓ Somme des lignes = total (${montant(total)})`;
     el.className = "controle ok";
+  } else if (taxe && Math.abs(s + taxe - total) < 0.01) {
+    el.textContent = `✓ Somme des lignes ${montant(s)} + taxe ${montant(taxe)} = total (${montant(total)})`;
+    el.className = "controle ok";
   } else {
-    el.textContent = `⚠ Somme des lignes ${montant(s)} ≠ total ${montant(total)} : à vérifier`;
+    el.textContent = `⚠ Somme des lignes ${montant(s)}${taxe ? ` + taxe ${montant(taxe)}` : ""} ≠ total ${montant(total)} : à vérifier`;
     el.className = "controle ko";
   }
 }

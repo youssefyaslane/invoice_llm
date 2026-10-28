@@ -46,8 +46,12 @@ TYPE_DOCUMENT = "une facture"
 CHAMPS = {
     "fournisseur": ("texte", "société qui émet la facture et reçoit le paiement (NETIS Holding est le client, jamais le"
                              "fournisseur), sans forme juridique (Inc, Ltd, LLC, SAS...)"),
+    "numero_facture": ("texte?", "numéro de la facture (Invoice number, N° de facture, Référence de la "
+                                 "facture...) tel qu'écrit ; pas un numéro de commande, de client, de contrat ni de "
+                                 "paiement"),
     "date_paiement": ("texte", "date de paiement, sinon date d'échéance, sinon date de la facture jamais une date de début ou de fin de période d’abonnement , au format JJ/MM/AAAA"),
     "devise": ("texte", "code ISO à 3 lettres (USD, EUR, MAD...)"),
+    "taxe": ("nombre?", "montant total des taxes (TVA, VAT, sales tax...) écrit sur le document, sinon null"),
     "total": ("nombre", "montant total écrit sur le document, taxes comprises"),
 }
 LISTE = ("articles", "une entrée par ligne d'article des tableaux, dans l'ordre ; pas les sous-totaux, taxes, totaux "
@@ -165,7 +169,8 @@ def public(f):
 
 
 def classeur_excel(liste):
-    """Une feuille des factures et une feuille des lignes (articles) ; en rouge si la somme des lignes ≠ total."""
+    """Une feuille des factures et une feuille des lignes (articles) ; en rouge si ni la somme des lignes, ni
+    la somme des lignes + taxe ne font le total."""
     nom_liste, _, champs_liste = LISTE
     classeur = Workbook()
     feuille = classeur.active
@@ -178,7 +183,8 @@ def classeur_excel(liste):
         donnees = f.get("donnees") or {}
         articles = donnees.get(nom_liste) or []
         somme = round(sum(a.get("prix") or 0 for a in articles), 2)
-        ok = donnees.get("total") is None or abs(somme - donnees["total"]) < 0.01
+        total, taxe = donnees.get("total"), donnees.get("taxe") or 0
+        ok = total is None or abs(somme - total) < 0.01 or abs(somme + taxe - total) < 0.01  # lignes TTC ou HT
         feuille.append([f["nom"], *[donnees.get(c) for c in CHAMPS], somme, "OK" if ok else "À vérifier"])
         if not ok:
             for cellule in feuille[feuille.max_row]:
