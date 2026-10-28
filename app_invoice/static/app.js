@@ -183,13 +183,29 @@ function dessinerResultat() {
   };
 
   // champs simples (fournisseur, date, devise, total...)
-  $("champs").replaceChildren(...meta.champs.map((c) =>
-    element("div", { class: "champ" }, [
+  $("champs").replaceChildren(...meta.champs.map((c) => {
+    const input = saisie(d[c.nom], c.type, original[c.nom], (v) => { modifier()[c.nom] = v; apresModification(); });
+    if (c.nom === "fournisseur") surveillerNetis(input);
+    return element("div", { class: "champ" }, [
       element("label", { texte: c.nom.replace(/_/g, " "), title: c.aide }),
-      saisie(d[c.nom], c.type, original[c.nom], (v) => { modifier()[c.nom] = v; apresModification(); }),
-    ])));
+      input,
+    ]);
+  }));
 
   dessinerLignes();
+}
+
+// NETIS est le client : un fournisseur « NETIS » est une erreur du modèle, le champ reste en rouge tant qu'il n'est pas corrigé
+const estNetis = (texte) => /netis/i.test(texte || "");
+
+function surveillerNetis(input) {
+  const verifier = () => {
+    const netis = estNetis(input.value);
+    input.classList.toggle("suspecte", netis);
+    input.title = netis ? "NETIS est le client, pas le fournisseur : à corriger" : "";
+  };
+  verifier();
+  input.addEventListener("input", verifier);
 }
 
 function dessinerLignes() {

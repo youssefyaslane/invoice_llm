@@ -110,6 +110,7 @@ input.saisie {
 input.saisie:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
 input.saisie.nombre { text-align: right; font-variant-numeric: tabular-nums; }
 input.saisie.modifiee { border-color: var(--attente); background: var(--attente-fond); }
+input.saisie.suspecte { border-color: var(--alerte); background: var(--alerte-fond); color: var(--alerte); }
 
 /* Tableau des articles */
 .defilement { overflow-x: auto; }
