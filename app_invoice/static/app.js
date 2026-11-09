@@ -185,7 +185,7 @@ function dessinerResultat() {
   // champs simples (fournisseur, date, devise, total...)
   $("champs").replaceChildren(...meta.champs.map((c) => {
     const input = saisie(d[c.nom], c.type, original[c.nom], (v) => { modifier()[c.nom] = v; apresModification(); });
-    if (c.nom === "fournisseur") surveillerNetis(input);
+    surveiller(input, c);
     return element("div", { class: "champ" }, [
       element("label", { texte: c.nom.replace(/_/g, " "), title: c.aide }),
       input,
@@ -195,14 +195,23 @@ function dessinerResultat() {
   dessinerLignes();
 }
 
-// NETIS est le client : un fournisseur « NETIS » est une erreur du modèle, le champ reste en rouge tant qu'il n'est pas corrigé
-const estNetis = (texte) => /netis/i.test(texte || "");
+// valeurs que le modèle écrit quand il ne trouve rien : le champ reste en rouge tant qu'il n'est pas corrigé
+const NON_TROUVE = /^(n\/?a|null|none|unknown|inconnu|-)$/i;
 
-function surveillerNetis(input) {
+function probleme(champ, texte) {
+  const v = (texte || "").trim();
+  if (NON_TROUVE.test(v)) return "Valeur non trouvée par le modèle : à compléter";
+  if (!v && !champ.type.endsWith("?")) return "Champ vide : à compléter";
+  // NETIS est le client : un fournisseur « NETIS » est une erreur du modèle
+  if (champ.nom === "fournisseur" && /netis/i.test(v)) return "NETIS est le client, pas le fournisseur : à corriger";
+  return "";
+}
+
+function surveiller(input, champ) {
   const verifier = () => {
-    const netis = estNetis(input.value);
-    input.classList.toggle("suspecte", netis);
-    input.title = netis ? "NETIS est le client, pas le fournisseur : à corriger" : "";
+    const message = probleme(champ, input.value);
+    input.classList.toggle("suspecte", !!message);
+    input.title = message;
   };
   verifier();
   input.addEventListener("input", verifier);

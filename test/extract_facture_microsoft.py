@@ -1,7 +1,7 @@
 """Extraction des informations d'une facture Microsoft (Azure / Billing Summary) vers Excel.
 
 Usage :
-    python extract_facture_microsoft.py [facture.pdf ...] [-o dossier_sortie]
+    python test/extract_facture_microsoft.py [facture.pdf ...] [-o dossier_sortie]
 
 Sans argument, traite Data/G133453773.pdf.
 """
@@ -16,7 +16,7 @@ from openpyxl.styles import Font
 
 from extract_facture import NUM, ajuster_colonnes, search, styler_entete, to_float
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]  # dossier facture/ : Data, Output, .env, attendu.json
 DATE = r"\d{2}/\d{2}/\d{4}"
 
 # Achat : période, prix unitaire, quantité, charges, total HT, indicateur TVA

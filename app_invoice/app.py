@@ -1,13 +1,15 @@
 """Application web locale (Flask) : on dépose des factures PDF (glisser-déposer), chacune est lue par Docling puis par
 le LLM local (Ollama, dans Docker), et le résultat s'affiche dans un tableau modifiable, à enregistrer ou à exporter
-en Excel. Même prompt simple et même schéma que llm_local/test_llm_ollama.py.
+en Excel. Même prompt simple et même schéma que test/llm_local/test_llm_ollama.py.
 
 Aucun masquage : rien ne quitte le serveur. Application autonome : n'importe aucun autre fichier du projet
 (seulement ses propres templates/index.html, static/style.css et static/app.js).
 Les factures sont traitées une par une (le LLM occupe tout le processeur) : les suivantes attendent leur tour.
 Fichiers : Output/app/<date>_<facture>.pdf (le PDF déposé) et .json (le résultat, avec les corrections enregistrées).
 
-Usage (depuis le dossier du projet, avec l'environnement Docling ; Ollama doit tourner) :
+Production (Docker : Ollama + application avec gunicorn, depuis le dossier du projet) :
+    docker compose -f app_invoice/docker-compose.yml up -d --build                -> http://localhost:6001
+Développement (serveur Flask, avec l'environnement Docling ; Ollama doit tourner) :
     .venv-docling/bin/python app_invoice/app.py                    -> http://localhost:8000
     .venv-docling/bin/python app_invoice/app.py -m gemma3:4b --port 8000         -> autre modèle (défaut : gemma4:e2b)
 """
@@ -168,9 +170,15 @@ def public(f):
             "duree": round((f["fin"] or time.time()) - f["debut"]) if f["debut"] else None}
 
 
+def valeur_manquante(valeur, type_):
+    """« N/A » (ce que le modèle écrit quand il ne trouve rien), ou champ obligatoire vide."""
+    texte = str(valeur if valeur is not None else "").strip()
+    return re.fullmatch(r"n/?a|null|none|unknown|inconnu|-", texte, re.I) or (not texte and not type_.endswith("?"))
+
+
 def classeur_excel(liste):
     """Une feuille des factures et une feuille des lignes (articles) ; en rouge si ni la somme des lignes, ni
-    la somme des lignes + taxe ne font le total, ou si le fournisseur est NETIS."""
+    la somme des lignes + taxe ne font le total, si le fournisseur est NETIS ou si un champ vaut N/A (ou est vide)."""
     nom_liste, _, champs_liste = LISTE
     classeur = Workbook()
     feuille = classeur.active
@@ -186,6 +194,7 @@ def classeur_excel(liste):
         total, taxe = donnees.get("total"), donnees.get("taxe") or 0
         ok = total is None or abs(somme - total) < 0.01 or abs(somme + taxe - total) < 0.01  # lignes TTC ou HT
         ok = ok and "netis" not in str(donnees.get("fournisseur") or "").lower()  # NETIS est le client
+        ok = ok and not any(valeur_manquante(donnees.get(c), t) for c, (t, _) in CHAMPS.items())
         feuille.append([f["nom"], *[donnees.get(c) for c in CHAMPS], somme, "OK" if ok else "À vérifier"])
         if not ok:
             for cellule in feuille[feuille.max_row]:
@@ -272,27 +281,40 @@ def exporter():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+def demarrer(modele, url):
+    """Réglages, dossier de sortie, vérification du modèle, puis traitement des factures en arrière-plan."""
+    reglages.update(modele=modele, url=url)
+    SORTIE.mkdir(parents=True, exist_ok=True)
+
+    # le modèle est-il installé dans Ollama ?
+    try:
+        with urllib.request.urlopen(f"{url}/api/tags", timeout=5) as r:
+            modeles = [m["name"] for m in json.load(r).get("models", [])]
+        if modele not in modeles and f"{modele}:latest" not in modeles:
+            print(f"⚠ Modèle {modele} absent d'Ollama (installés : {', '.join(modeles) or 'aucun'}) :\n"
+                  f"   docker exec ollama ollama pull {modele}", flush=True)
+    except OSError:
+        print(f"⚠ Ollama injoignable sur {url} : le conteneur ollama tourne-t-il ?", flush=True)
+
+    threading.Thread(target=travailleur, daemon=True).start()
+
+
+def creer_app():
+    """Production (gunicorn, voir Dockerfile) : réglages lus dans les variables MODELE et OLLAMA_URL.
+    Un seul worker gunicorn : la file d'attente et la liste des factures sont en mémoire dans ce processus."""
+    demarrer(os.environ.get("MODELE", reglages["modele"]), os.environ.get("OLLAMA_URL", reglages["url"]))
+    return app
+
+
 def main():
+    """Développement : serveur intégré de Flask."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-m", "--modele", default=os.environ.get("MODELE", reglages["modele"]))
     ap.add_argument("--url", default=os.environ.get("OLLAMA_URL", reglages["url"]))
     ap.add_argument("--port", type=int, default=8000)
     ap.add_argument("--host", default="127.0.0.1", help="127.0.0.1 : accessible depuis ce serveur seulement")
     args = ap.parse_args()
-    reglages.update(modele=args.modele, url=args.url)
-    SORTIE.mkdir(parents=True, exist_ok=True)
-
-    # le modèle est-il installé dans Ollama ?
-    try:
-        with urllib.request.urlopen(f"{args.url}/api/tags", timeout=5) as r:
-            modeles = [m["name"] for m in json.load(r).get("models", [])]
-        if args.modele not in modeles and f"{args.modele}:latest" not in modeles:
-            print(f"⚠ Modèle {args.modele} absent d'Ollama (installés : {', '.join(modeles) or 'aucun'}) :\n"
-                  f"   docker exec ollama ollama pull {args.modele}")
-    except OSError:
-        print(f"⚠ Ollama injoignable sur {args.url} : le conteneur ollama tourne-t-il ?")
-
-    threading.Thread(target=travailleur, daemon=True).start()
+    demarrer(args.modele, args.url)
     print(f"Application : http://localhost:{args.port}   (modèle {args.modele}, Ctrl+C pour arrêter)")
     app.run(host=args.host, port=args.port, threaded=True)
 

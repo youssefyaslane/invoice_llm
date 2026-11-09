@@ -13,9 +13,9 @@ Entrée : le PDF (lu par Docling, pied de page compris : il faut .venv-docling) 
 Script autonome (n'importe aucun autre fichier du projet).
 
 Usage (depuis le dossier du projet ; Ollama doit tourner) :
-    .venv-docling/bin/python llm_local/test_llm_ollama_v2.py "Data/2026/03-MAR/OVH/facture.pdf"
-    .venv-docling/bin/python llm_local/test_llm_ollama_v2.py facture.pdf -m qwen2.5:3b
-    .venv-docling/bin/python llm_local/test_llm_ollama_v2.py --prompt          -> affiche le prompt envoyé
+    .venv-docling/bin/python test/llm_local/test_llm_ollama_v2.py "Data/2026/03-MAR/OVH/facture.pdf"
+    .venv-docling/bin/python test/llm_local/test_llm_ollama_v2.py facture.pdf -m qwen2.5:3b
+    .venv-docling/bin/python test/llm_local/test_llm_ollama_v2.py --prompt          -> affiche le prompt envoyé
 """
 import argparse
 import json
@@ -26,7 +26,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-PROJET = Path(__file__).resolve().parent.parent  # dossier facture/ : Output, attendu.json
+PROJET = Path(__file__).resolve().parents[2]  # dossier facture/ : Output, attendu.json
 
 # ---------------------------------------------------------------------------------------------------------------
 # Ce que le modèle recopie : nom -> (type, explication donnée au modèle). Aucun choix à faire de sa part.

@@ -16,8 +16,8 @@ Configuration dans un fichier .env (à côté de ce script, à ne jamais partage
     SP_PASSWORD=...
 
 Usage :
-    .venv-llm/bin/python recuperer_sharepoint.py            -> télécharge les PDF absents de Data/
-    .venv-llm/bin/python recuperer_sharepoint.py --liste    -> affiche seulement les PDF du dossier
+    .venv-llm/bin/python test/recuperer_sharepoint.py            -> télécharge les PDF absents de Data/
+    .venv-llm/bin/python test/recuperer_sharepoint.py --liste    -> affiche seulement les PDF du dossier
 """
 import argparse
 import os
@@ -26,7 +26,7 @@ from pathlib import Path
 from office365.runtime.auth.user_credential import UserCredential
 from office365.sharepoint.client_context import ClientContext
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]  # dossier facture/ : Data, Output, .env, attendu.json
 
 
 def lire_env(chemin):

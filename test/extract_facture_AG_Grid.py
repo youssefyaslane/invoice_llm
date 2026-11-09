@@ -1,7 +1,7 @@
 """Extraction des informations d'une facture AG Grid (PDF) vers Excel.
 
 Usage :
-    python extract_facture.py [facture.pdf ...] [-o dossier_sortie]
+    python test/extract_facture.py [facture.pdf ...] [-o dossier_sortie]
 
 Sans argument, traite Data/INV-55868.pdf.
 """
@@ -15,7 +15,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]  # dossier facture/ : Data, Output, .env, attendu.json
 NUM = r"-?[\d,]+\.\d{2}"
 
 # Ligne article : code, début de description, quantité, prix unitaire, TVA, montant

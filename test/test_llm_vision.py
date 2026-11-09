@@ -5,7 +5,7 @@ Usage (voir docker-compose.yml) :
     docker compose run --rm test-vision "Data/facture.pdf"
     docker compose run --rm test-vision "Data/facture.pdf" --dpi 130     -> image plus nette (plus lent)
 ou en local :
-    .venv-llm/bin/python test_llm_vision.py facture.pdf [-m qwen3-vl:4b] [--url http://localhost:11434]
+    .venv-llm/bin/python test/test_llm_vision.py facture.pdf [-m qwen3-vl:4b] [--url http://localhost:11434]
 """
 import argparse
 import base64

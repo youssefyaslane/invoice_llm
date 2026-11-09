@@ -1,30 +1,26 @@
-"""Extraction générique à partir des fichiers Markdown produits par Docling (Output/docling/*.md) :
-un prompt simple généré à partir des champs voulus + le LLM. Aucune règle propre à un fournisseur ni correction par
-le code : pour un autre type de document (contrat, CV, devis...), on change seulement CHAMPS et LISTE ci-dessous.
+"""Test d'une facture avec un LLM local (Ollama, dans Docker) : même Markdown Docling, même prompt simple et même
+schéma que test_llm_openai.py, pour comparer le modèle local au modèle OpenAI sur la même entrée.
 
-Préparer le Markdown avec Docling (une fois par PDF) :
-    .venv-docling/bin/docling "Data/.../facture.pdf" --to md --no-ocr --image-export-mode placeholder --output Output/docling
-Puis (Ollama doit tourner) :
-    .venv-llm/bin/python test_llm_docling.py                                   -> tous les .md de Output/docling
-    .venv-llm/bin/python test_llm_docling.py Output/docling/facture.md         -> un seul fichier
-    .venv-llm/bin/python test_llm_docling.py -m qwen2.5:7b                     -> autre modèle
-    .venv-llm/bin/python test_llm_docling.py --prompt                          -> affiche le prompt généré
+Aucun masquage : le texte ne quitte pas le serveur. Script autonome (n'importe aucun autre fichier du projet).
 
-Sortie : Output/<facture>_<modèle>_docling.json ; comparaison avec attendu.json si la facture y est.
+Usage (depuis le dossier du projet ; Ollama doit tourner) :
+    .venv-llm/bin/python test/llm_local/test_llm_ollama.py "Output/docling/facture.md"
+    .venv-llm/bin/python test/llm_local/test_llm_ollama.py "Output/docling/facture.md" -m qwen2.5:7b
+    .venv-llm/bin/python test/llm_local/test_llm_ollama.py --prompt          -> affiche le prompt envoyé
 """
 import argparse
 import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
+PROJET = Path(__file__).resolve().parents[2]  # dossier facture/ : Output, attendu.json
 
 # ---------------------------------------------------------------------------------------------------------------
-# Les champs à extraire : nom -> (type, explication donnée au modèle).
-# Types : "texte", "nombre", "texte?" / "nombre?" (peut être vide : null).
+# Champs à extraire (identiques au test OpenAI) : nom -> (type, explication donnée au modèle)
 # ---------------------------------------------------------------------------------------------------------------
 TYPE_DOCUMENT = "une facture"
 CHAMPS = {
@@ -34,7 +30,6 @@ CHAMPS = {
     "devise": ("texte", "code ISO à 3 lettres (USD, EUR, MAD...)"),
     "total": ("nombre", "montant total écrit sur le document, taxes comprises"),
 }
-# Une liste de lignes (facultatif) : nom de la liste, explication, champs de chaque ligne
 LISTE = ("articles", "une entrée par ligne d'article des tableaux, dans l'ordre ; pas les sous-totaux, taxes, totaux "
                      "ni paiements", {
     "description": ("texte", "nom de l'article tel qu'écrit"),
@@ -42,19 +37,16 @@ LISTE = ("articles", "une entrée par ligne d'article des tableaux, dans l'ordre
     "prix_unitaire": ("nombre?", "prix unitaire écrit, sinon null"),
     "prix": ("nombre", "montant de la ligne (négatif s'il est écrit avec un signe -)"),
 })
-# ---------------------------------------------------------------------------------------------------------------
-
 TYPES_JSON = {"texte": {"type": "string"}, "nombre": {"type": "number"},
               "texte?": {"type": ["string", "null"]}, "nombre?": {"type": ["number", "null"]}}
 
 
 def construire_schema():
     proprietes = {nom: TYPES_JSON[t] for nom, (t, _) in CHAMPS.items()}
-    if LISTE:
-        nom, _, champs = LISTE
-        proprietes[nom] = {"type": "array", "items": {"type": "object",
-                                                       "properties": {n: TYPES_JSON[t] for n, (t, _) in champs.items()},
-                                                       "required": list(champs)}}
+    nom, _, champs = LISTE
+    proprietes[nom] = {"type": "array", "items": {"type": "object",
+                                                   "properties": {n: TYPES_JSON[t] for n, (t, _) in champs.items()},
+                                                   "required": list(champs)}}
     return {"type": "object", "properties": proprietes, "required": list(proprietes)}
 
 
@@ -66,10 +58,9 @@ def construire_prompt():
               "Montants : nombres à point décimal, sans devise ni séparateur de milliers (\"1 234,56 €\" = 1234.56).",
               ""]
     lignes += [f"- {nom} : {explication}" for nom, (_, explication) in CHAMPS.items()]
-    if LISTE:
-        nom, explication, champs = LISTE
-        lignes.append(f"- {nom} : {explication}")
-        lignes += [f"  - {n} : {e}" for n, (_, e) in champs.items()]
+    nom, explication, champs = LISTE
+    lignes.append(f"- {nom} : {explication}")
+    lignes += [f"  - {n} : {e}" for n, (_, e) in champs.items()]
     return "\n".join(lignes)
 
 
@@ -77,23 +68,26 @@ def appeler_ollama(url, modele, prompt, schema, texte):
     corps = {
         "model": modele,
         "messages": [{"role": "system", "content": prompt}, {"role": "user", "content": texte}],
-        "format": schema,
+        "format": schema,          # réponse forcée au format du schéma
         "stream": False,
-        "think": False,
-        "keep_alive": "30m",
+        "think": False,            # pas de raisonnement écrit avant la réponse (trop lent sur CPU)
+        "keep_alive": "30m",       # le modèle reste chargé entre deux tests
         "options": {"temperature": 0, "num_ctx": 8192},
     }
     req = urllib.request.Request(f"{url}/api/chat", data=json.dumps(corps).encode(),
                                  headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=3600) as r:
-        rep = json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=3600) as r:
+            rep = json.load(r)
+    except urllib.error.HTTPError as e:
+        raise SystemExit(f"Erreur d'Ollama ({e.code}) : {e.read().decode(errors='replace')[:500]}")
+    except urllib.error.URLError as e:
+        raise SystemExit(f"Ollama injoignable sur {url} ({e.reason}) : le conteneur ollama tourne-t-il ?")
     return json.loads(rep["message"]["content"]), rep
 
 
 def norm(v):
-    if isinstance(v, (int, float)):
-        return round(float(v), 2)
-    return str(v or "").strip().lower()
+    return round(float(v), 2) if isinstance(v, (int, float)) else str(v or "").strip().lower()
 
 
 def comparer(data, attendu):
@@ -115,40 +109,39 @@ def comparer(data, attendu):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("chemins", nargs="*", type=Path, default=[BASE_DIR / "Output" / "docling"],
-                    help="fichiers .md de Docling ou dossiers (par défaut Output/docling)")
+    ap.add_argument("md", nargs="?", type=Path, help="fichier Markdown produit par Docling (Output/docling/<facture>.md)")
     ap.add_argument("-m", "--modele", default=os.environ.get("MODELE", "qwen2.5:3b"))
     ap.add_argument("--url", default=os.environ.get("OLLAMA_URL", "http://localhost:11434"))
-    ap.add_argument("--prompt", action="store_true", help="affiche le prompt généré et s'arrête")
+    ap.add_argument("--prompt", action="store_true", help="affiche le prompt envoyé et s'arrête")
     args = ap.parse_args()
 
     prompt, schema = construire_prompt(), construire_schema()
     if args.prompt:
         print(prompt)
         return
-    fichiers = sorted(p for c in args.chemins for p in ([c] if c.is_file() else c.rglob("*.md")) if p.suffix == ".md")
-    if not fichiers:
-        raise SystemExit("Aucun fichier .md : convertissez d'abord les PDF avec Docling (voir l'aide en haut du script)")
-    fichier_attendu = BASE_DIR / "attendu.json"
+    if not args.md:
+        ap.error("indiquez le fichier Markdown de la facture (Output/docling/<facture>.md)")
+
+    # images intégrées (logos en base64) retirées : inutiles et très coûteuses en tokens
+    texte = re.sub(r"!\[[^\]]*\]\(data:image/[^)]*\)", "<!-- image -->", args.md.read_text(encoding="utf-8"))
+    print(f"=== {args.md.name}  —  modèle : {args.modele} (Ollama, local)  —  Docling + prompt simple")
+
+    t0 = time.time()
+    data, rep = appeler_ollama(args.url, args.modele, prompt, schema, texte)
+    print(f"Temps : {time.time() - t0:.1f} s  (chargement {rep.get('load_duration', 0) / 1e9:.1f} s, "
+          f"lecture {rep.get('prompt_eval_count', 0)} tokens en {rep.get('prompt_eval_duration', 0) / 1e9:.1f} s, "
+          f"génération {rep.get('eval_count', 0)} tokens en {rep.get('eval_duration', 0) / 1e9:.1f} s)\n")
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+
+    sortie = PROJET / "Output" / f"{args.md.stem}_{args.modele.replace(':', '_').replace('/', '_')}_local.json"
+    sortie.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"\nRésultat enregistré : {sortie}")
+
+    fichier_attendu = PROJET / "attendu.json"
     attendu = json.loads(fichier_attendu.read_text(encoding="utf-8")) if fichier_attendu.is_file() else {}
-
-    for md in fichiers:
-        # images intégrées (logos en base64) retirées : inutiles et très coûteuses en tokens
-        texte = re.sub(r"!\[[^\]]*\]\(data:image/[^)]*\)", "<!-- image -->", md.read_text(encoding="utf-8"))
-        print(f"\n=== {md.name}  —  modèle : {args.modele}  —  Docling + prompt simple")
-
-        t0 = time.time()
-        data, rep = appeler_ollama(args.url, args.modele, prompt, schema, texte)
-        print(f"Temps : LLM {time.time() - t0:.1f} s  (lecture {rep.get('prompt_eval_count', 0)} "
-              f"tokens en {rep.get('prompt_eval_duration', 0) / 1e9:.1f} s, génération {rep.get('eval_count', 0)} tokens "
-              f"en {rep.get('eval_duration', 0) / 1e9:.1f} s)\n")
-        print(json.dumps(data, indent=2, ensure_ascii=False))
-        sortie = BASE_DIR / "Output" / f"{md.stem}_{args.modele.replace(':', '_')}_docling.json"
-        sortie.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-
-        if md.stem in attendu:
-            print("\n--- Comparaison avec les valeurs exactes ---")
-            comparer(data, attendu[md.stem])
+    if args.md.stem in attendu:
+        print("\n--- Comparaison avec les valeurs exactes ---")
+        comparer(data, attendu[args.md.stem])
 
 
 if __name__ == "__main__":

@@ -12,10 +12,10 @@ La correspondance repère -> vraie valeur reste en mémoire sur le serveur : jam
 Le texte réellement envoyé est gardé dans Output/pipeline/<document>_envoye.md, pour contrôle.
 
 Usage (depuis le dossier du projet, avec l'environnement Docling qui contient aussi Presidio) :
-    .venv-docling/bin/python pipeline_llm/pipeline.py "Data/2026/07-JUL/Microsoft/facture.pdf"
-    .venv-docling/bin/python pipeline_llm/pipeline.py Data/2026/07-JUL            -> tous les PDF du dossier
-    .venv-docling/bin/python pipeline_llm/pipeline.py facture.pdf --voir-envoi    -> texte masqué, sans LLM
-    .venv-docling/bin/python pipeline_llm/pipeline.py facture.pdf --llm ollama    -> LLM local (rien ne sort) :
+    .venv-docling/bin/python test/pipeline_llm/pipeline.py "Data/2026/07-JUL/Microsoft/facture.pdf"
+    .venv-docling/bin/python test/pipeline_llm/pipeline.py Data/2026/07-JUL            -> tous les PDF du dossier
+    .venv-docling/bin/python test/pipeline_llm/pipeline.py facture.pdf --voir-envoi    -> texte masqué, sans LLM
+    .venv-docling/bin/python test/pipeline_llm/pipeline.py facture.pdf --llm ollama    -> LLM local (rien ne sort) :
                                                                                      pas de masquage (étapes 2 et 4)
 """
 import argparse
@@ -30,7 +30,7 @@ from lecture import convertisseur, pdf_en_markdown
 from llm import appeler, lire_env
 from mise_en_forme import mettre_en_forme
 
-PROJET = Path(__file__).resolve().parent.parent  # dossier facture/ : Data, Output, .env, attendu.json
+PROJET = Path(__file__).resolve().parents[2]  # dossier facture/ : Data, Output, .env, attendu.json
 SORTIE = PROJET / "Output" / "pipeline"
 
 

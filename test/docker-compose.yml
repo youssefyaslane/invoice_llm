@@ -1,0 +1,95 @@
+# Tests d'extraction de factures avec le LLM local. Ollama vient de app_invoice/docker-compose.yml (inclus).
+# Depuis le dossier du projet :
+#   docker compose -f test/docker-compose.yml run --rm test                            -> teste Data/INV-55868.pdf
+#   docker compose -f test/docker-compose.yml run --rm test Data/G133453773.pdf        -> teste une autre facture
+#   MODELE=qwen2.5:3b docker compose -f test/docker-compose.yml run --rm test          -> autre modèle
+name: facture-llm
+
+include:
+  - ../app_invoice/docker-compose.yml
+
+services:
+  test:
+    build: ./test-llm
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test/test_llm_facture.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-gemma4:e2b}
+    volumes:
+      - ./test_llm_facture.py:/app/test/test_llm_facture.py:ro
+      - ../attendu.json:/app/attendu.json:ro   # valeurs exactes (hors dépôt git), facultatif
+      - ../Data:/app/Data:ro
+      - ../Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # Toutes les factures d'un dossier (Data/2026 par défaut) -> Output/factures_<dossier>.xlsx
+  main:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test/main.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-gemma4:e2b}
+    volumes:
+      - ./main.py:/app/test/main.py:ro
+      - ./test_llm_facture.py:/app/test/test_llm_facture.py:ro
+      - ../Data:/app/Data:ro
+      - ../Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # Même test, mais le LLM seul : toutes les règles dans le prompt, sans correction par le code
+  test-prompt:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test/test_llm_prompt.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-gemma4:e2b}
+    volumes:
+      - ./test_llm_prompt.py:/app/test/test_llm_prompt.py:ro
+      - ../attendu.json:/app/attendu.json:ro
+      - ../Data:/app/Data:ro
+      - ../Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # Même test que test-prompt, mais le modèle VISION lit l'image des pages au lieu du texte
+  test-vision:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test/test_llm_vision.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-qwen3-vl:4b}
+    volumes:
+      - ./test_llm_vision.py:/app/test/test_llm_vision.py:ro
+      - ./test_llm_prompt.py:/app/test/test_llm_prompt.py:ro
+      - ../attendu.json:/app/attendu.json:ro
+      - ../Data:/app/Data:ro
+      - ../Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+
+  # LLM sur le Markdown produit par Docling (Output/docling/*.md) avec un prompt simple généré des champs voulus
+  test-docling:
+    image: facture-test-llm
+    profiles: ["test"]
+    entrypoint: ["python", "test/test_llm_docling.py"]
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-gemma4:e2b}
+    volumes:
+      - ./test_llm_docling.py:/app/test/test_llm_docling.py:ro
+      - ../attendu.json:/app/attendu.json:ro
+      - ../Output:/app/Output
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully

@@ -9,9 +9,9 @@ Clé API dans le fichier .env (à côté de ce script, jamais sur GitHub) :
     OPENAI_MODEL=gpt-6-luna          (facultatif)
 
 Usage :
-    .venv-llm/bin/python test_llm_openai.py "Output/docling/facture.md"
-    .venv-llm/bin/python test_llm_openai.py "Output/docling/facture.md" -m gpt-6-sol
-    .venv-llm/bin/python test_llm_openai.py "Output/docling/facture.md" --voir-envoi   -> sans envoi
+    .venv-llm/bin/python test/test_llm_openai.py "Output/docling/facture.md"
+    .venv-llm/bin/python test/test_llm_openai.py "Output/docling/facture.md" -m gpt-6-sol
+    .venv-llm/bin/python test/test_llm_openai.py "Output/docling/facture.md" --voir-envoi   -> sans envoi
 """
 import argparse
 import json

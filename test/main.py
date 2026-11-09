@@ -7,7 +7,7 @@ Usage (voir docker-compose.yml) :
     docker compose run --rm main --refaire                -> refait aussi les factures déjà extraites
     docker compose run --rm main --refaire ReadAI 0008    -> refait seulement celles dont le chemin contient "ReadAI" ou "0008"
 ou en local :
-    .venv-llm/bin/python main.py [dossier] [-m modele] [--url http://localhost:11434]
+    .venv-llm/bin/python test/main.py [dossier] [-m modele] [--url http://localhost:11434]
 
 Chaque résultat est gardé dans Output/resultats/ : une facture déjà extraite n'est pas renvoyée au LLM
 (sauf --refaire ou PDF modifié), donc relancer le script chaque mois ne traite que les nouvelles factures.

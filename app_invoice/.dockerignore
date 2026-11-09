@@ -1,0 +1,3 @@
+ollama-cpu/
+__pycache__/
+docker-compose.yml

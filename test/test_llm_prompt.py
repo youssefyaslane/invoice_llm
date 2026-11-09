@@ -4,7 +4,7 @@ aucune correction par le code (contrairement à test_llm_facture.py).
 Usage (voir docker-compose.yml) :
     docker compose run --rm test-prompt [Data/facture.pdf]
 ou en local :
-    .venv-llm/bin/python test_llm_prompt.py [facture.pdf] [-m modele] [--url http://localhost:11434]
+    .venv-llm/bin/python test/test_llm_prompt.py [facture.pdf] [-m modele] [--url http://localhost:11434]
 
 Le résultat est comparé à attendu.json (s'il existe) pour mesurer ce que le prompt obtient seul.
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pdfplumber
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]  # dossier facture/ : Data, Output, .env, attendu.json
 
 TXT, NUM, NUM_NULL = {"type": "string"}, {"type": "number"}, {"type": ["number", "null"]}
 # fournisseur en dernier : le modèle écrit le JSON dans cet ordre, il a donc déjà lu les articles

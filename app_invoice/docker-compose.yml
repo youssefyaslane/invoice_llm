@@ -1,0 +1,57 @@
+# Application de factures complète : Ollama (LLM local, CPU) + application (Flask + Docling, gunicorn).
+# Depuis le dossier du projet :
+#   docker compose -f app_invoice/docker-compose.yml up -d --build                     -> http://localhost:6001
+#   docker compose -f app_invoice/docker-compose.yml logs -f app                       -> journal de l'application
+#   docker compose -f app_invoice/docker-compose.yml down                              -> arrête tout
+#   MODELE=gemma3:4b docker compose -f app_invoice/docker-compose.yml up -d            -> autre modèle
+#   MODELE=gemma3:4b docker compose -f app_invoice/docker-compose.yml run --rm ollama-pull   -> télécharge un modèle
+# Les modèles Ollama sont gardés dans le volume facture-llm_ollama (même nom de projet qu'avant : rien à retélécharger).
+name: facture-llm
+
+services:
+  ollama:
+    build: ./ollama-cpu
+    image: ollama-cpu
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Télécharge le modèle (rien à faire s'il est déjà présent), puis s'arrête
+  ollama-pull:
+    image: ollama-cpu
+    environment:
+      OLLAMA_HOST: ollama:11434
+      MODELE: ${MODELE:-gemma4:e2b}
+    entrypoint: ["sh", "-c", "ollama pull $${MODELE}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  app:
+    build: .
+    image: facture-app
+    container_name: facture-app
+    restart: unless-stopped
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      MODELE: ${MODELE:-gemma4:e2b}
+    ports:
+      - "6001:6001"    # accessible depuis le réseau : http://<adresse du serveur>:6001
+    volumes:
+      - ../Output:/app/Output                       # PDF déposés et résultats : Output/app
+      - docling-modeles:/root/.cache/huggingface    # modèles Docling, téléchargés au premier PDF puis gardés
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+volumes:
+  ollama:
+  docling-modeles:

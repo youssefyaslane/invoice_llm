@@ -7,7 +7,7 @@ Masqué à partir de la liste locale masquage_local.json (jamais sur GitHub) :
     noms des personnes et adresses du client (NETIS)
 
 Voir ce qui serait envoyé, sans rien envoyer :
-    .venv-llm/bin/python masquage.py "Output/docling/facture.md"
+    .venv-llm/bin/python test/masquage.py "Output/docling/facture.md"
 """
 import json
 import re

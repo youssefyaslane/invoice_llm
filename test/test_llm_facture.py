@@ -3,7 +3,7 @@
 Usage (voir docker-compose.yml) :
     docker compose run --rm test [Data/facture.pdf] [-m modele]
 ou en local :
-    .venv-llm/bin/python test_llm_facture.py [facture.pdf] [-m modele] [--url http://localhost:11434]
+    .venv-llm/bin/python test/test_llm_facture.py [facture.pdf] [-m modele] [--url http://localhost:11434]
 
 Sans argument, traite Data/INV-55868.pdf avec qwen2.5:3b (ou $MODELE).
 Extrait seulement : fournisseur, date de paiement, devise, articles (description + prix) et total.
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pdfplumber
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[1]  # dossier facture/ : Data, Output, .env, attendu.json
 
 TXT, NUM, NUM_NULL = {"type": "string"}, {"type": "number"}, {"type": ["number", "null"]}
 CHAMPS = {
