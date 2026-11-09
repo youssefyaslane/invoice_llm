@@ -43,10 +43,16 @@ services:
     environment:
       OLLAMA_URL: http://ollama:11434
       MODELE: ${MODELE:-gemma4:e2b}
+    env_file:
+      - path: .env               # base PostgreSQL (POSTGRES_...) : voir .env.example
+        required: false
+    extra_hosts:
+      - "host.docker.internal:host-gateway"         # PostgreSQL installé sur ce serveur, hors Docker
     ports:
       - "6001:6001"    # accessible depuis le réseau : http://<adresse du serveur>:6001
     volumes:
-      - ../Output:/app/Output                       # PDF déposés et résultats : Output/app
+      - ../Output:/app/Output                       # PDF en attente et résultats (.json) : Output/app
+      - ./Data:/app/app_invoice/Data                # PDF rangés par date de paiement : Data/2026/01-JAN/...
       - docling-modeles:/root/.cache/huggingface    # modèles Docling, téléchargés au premier PDF puis gardés
     depends_on:
       ollama:

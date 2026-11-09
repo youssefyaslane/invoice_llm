@@ -13,7 +13,7 @@ const ETATS = {
   attente: (f) => `En attente${f.rang ? ` (n° ${f.rang})` : ""}`,
   lecture: () => "Lecture du PDF…",
   llm: () => `Extraction par ${meta.modele}…`,
-  fini: (f) => (f.modifie ? "Terminé · corrigé" : "Terminé"),
+  fini: (f) => (f.doublon ? "Doublon · déjà en base" : f.enregistree ? (f.modifie ? "Enregistré · corrigé" : "Enregistré") : "Terminé · à enregistrer"),
   erreur: () => "Erreur",
 };
 
@@ -114,7 +114,8 @@ function dessinerListe() {
         element("span", { class: "nom", texte: f.nom }),
         resume ? element("span", { class: "resume", texte: resume }) : "",
       ]),
-      element("td", {}, [element("span", { class: `etat ${f.statut}`, texte: ETATS[f.statut](f) })]),
+      element("td", {}, [element("span", { class: `etat ${f.doublon ? "erreur" : f.statut}`, texte: ETATS[f.statut](f),
+                                            title: f.doublon || "" })]),
       element("td", { class: "duree", texte: duree(f.duree) }),
       element("td", {}, [brouillons[f.id] ? element("span", { class: "etat attente", texte: "non enregistré" }) : ""]),
     ]);
@@ -193,6 +194,7 @@ function dessinerResultat() {
   }));
 
   dessinerLignes();
+  majBoutons();
 }
 
 // valeurs que le modèle écrit quand il ne trouve rien : le champ reste en rouge tant qu'il n'est pas corrigé
@@ -204,6 +206,10 @@ function probleme(champ, texte) {
   if (!v && !champ.type.endsWith("?")) return "Champ vide : à compléter";
   // NETIS est le client : un fournisseur « NETIS » est une erreur du modèle
   if (champ.nom === "fournisseur" && /netis/i.test(v)) return "NETIS est le client, pas le fournisseur : à corriger";
+  // numéro déjà enregistré en base (vérifié par le serveur) : rouge tant que le numéro n'est pas changé
+  const f = facture(choisie);
+  const normal = (n) => String(n ?? "").replace(/\s+/g, "").toUpperCase();
+  if (champ.nom === "numero_facture" && f?.doublon && normal(v) === normal(f.resultat?.numero_facture)) return f.doublon;
   return "";
 }
 
@@ -305,7 +311,9 @@ function apresModification() {
 
 function majBoutons() {
   const modifie = Boolean(brouillons[choisie]);
-  $("enregistrer").disabled = !modifie;
+  const f = facture(choisie);
+  // actif aussi sans modification tant que la facture n'est pas enregistrée (le PDF n'est rangé qu'à l'enregistrement)
+  $("enregistrer").disabled = !(f && f.statut === "fini" && (modifie || !f.enregistree));
   $("annuler").disabled = !modifie;
 }
 
@@ -330,7 +338,7 @@ $("enregistrer").addEventListener("click", async () => {
   const rep = await fetch(`/api/factures/${id}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(brouillons[id]),
+    body: JSON.stringify(brouillons[id] ?? facture(id).resultat),
   });
   if (!rep.ok) return ($("etat-enregistrement").textContent = `Échec de l'enregistrement (${rep.status})`);
   const maj = await rep.json();
@@ -339,7 +347,9 @@ $("enregistrer").addEventListener("click", async () => {
   affichee = null;
   dessinerResultat();
   apresModification();
-  $("etat-enregistrement").textContent = "✓ Enregistré";
+  $("etat-enregistrement").textContent = maj.doublon ? `⚠ Non enregistré · ${maj.doublon}` : (maj.dossier
+    ? `✓ Enregistré · PDF rangé dans ${maj.dossier}`
+    : "✓ Enregistré · date de paiement non valable : PDF non rangé") + (maj.erreur_bd ? ` · ⚠ ${maj.erreur_bd}` : "");
 });
 
 // ---------------------------------------------------------------------------------------------------------------

@@ -68,6 +68,8 @@ polyfactory==3.5.0
 preshed==3.0.13
 presidio_analyzer==2.2.364
 psutil==7.2.2
+psycopg==3.3.8
+psycopg-binary==3.3.8
 pyclipper==1.4.0
 pydantic==2.14.1
 pydantic-settings==2.16.1
