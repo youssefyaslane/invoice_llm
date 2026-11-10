@@ -7,62 +7,175 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-  <header>
-    <h1>Extraction de factures</h1>
-    <p class="sous-titre">LLM local <strong>{{ modele }}</strong> — les factures ne quittent pas le serveur</p>
+  <header class="entete">
+    <div class="marque">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+      </span>
+      <div>
+        <h1>Extraction de factures</h1>
+        <p class="sous-titre">Les champs sont remplis par un modèle d'IA local (<strong>{{ modele }}</strong>), puis vérifiés par vous.</p>
+      </div>
+    </div>
+    <span class="badge-local" title="Les PDF, le texte lu et les résultats restent sur ce serveur : aucun service extérieur n'est appelé.">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      Tout reste sur le serveur
+    </span>
   </header>
 
   <main>
-    <!-- 1. Dépôt des PDF -->
-    <label id="depot" class="depot" for="choix">
-      <input id="choix" type="file" accept="application/pdf,.pdf" multiple hidden>
-      <span class="depot-icone" aria-hidden="true">⬆</span>
-      <span class="depot-texte">Glissez vos factures PDF ici</span>
-      <span class="depot-aide">ou cliquez pour les choisir — plusieurs à la fois possible</span>
-    </label>
-    <p id="message" class="message" hidden></p>
+    <div class="grille-haut">
+      <!-- 1. Dépôt des PDF -->
+      <section class="carte">
+        <div class="entete-carte">
+          <div>
+            <h2><span class="num">1</span>Déposer des factures</h2>
+            <p class="aide">Ajoutez un ou plusieurs PDF : ils sont lus automatiquement, l'un après l'autre.</p>
+          </div>
+        </div>
+        <label id="depot" class="depot" for="choix">
+          <input id="choix" type="file" accept="application/pdf,.pdf" multiple hidden>
+          <svg class="depot-icone" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M20 16v3a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-3"/></svg>
+          <span id="depot-texte" class="depot-texte">Glissez vos PDF ici</span>
+          <span class="depot-aide">ou <span class="lien">cliquez pour les choisir</span> · 50 Mo max par envoi</span>
+        </label>
+        <p class="note">PDF numériques uniquement : un PDF scanné (une image) n'a pas de texte à lire.</p>
+        <p id="message" class="message" role="alert" hidden></p>
+      </section>
 
-    <!-- 2. Factures déposées et leur avancement -->
-    <section id="bloc-liste" class="carte" hidden>
+      <!-- 2. Factures déposées et leur avancement -->
+      <section class="carte">
+        <div class="entete-carte">
+          <div>
+            <h2><span class="num">2</span>Suivi des factures</h2>
+            <p class="aide">Environ 1 minute par facture. Cliquez sur une ligne pour la vérifier.</p>
+          </div>
+          <button id="excel" class="bouton secondaire" type="button" disabled
+                  title="Toutes les factures terminées, avec les corrections affichées (même non enregistrées). Les lignes à vérifier sont en rouge.">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></svg>
+            Exporter en Excel
+          </button>
+        </div>
+        <div id="compteurs" class="compteurs"></div>
+        <div id="liste-vide" class="vide">
+          <strong>Aucune facture pour l'instant</strong>
+          <span>Les factures déposées apparaîtront ici avec leur avancement : en file, lecture, extraction, puis à vérifier.</span>
+        </div>
+        <div class="defilement liste-defilement">
+          <table id="tableau-liste" class="liste" hidden>
+            <thead><tr><th>Fichier</th><th>État</th><th class="col-duree">Durée</th></tr></thead>
+            <tbody id="liste"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- 3. Résultat de la facture choisie : modifiable, à côté du PDF -->
+    <section id="bloc-resultat" class="carte">
       <div class="entete-carte">
-        <h2>Factures déposées</h2>
-        <button id="excel" class="bouton secondaire" type="button" disabled>Exporter Excel (toutes)</button>
+        <div>
+          <h2><span class="num">3</span>Vérifier et enregistrer</h2>
+          <p class="aide">Comparez chaque valeur avec le PDF et corrigez si besoin.
+            <span class="legende"><i class="pastille rouge"></i>à vérifier <i class="pastille bleue"></i>modifié par vous</span></p>
+        </div>
+        <div class="boutons-entete">
+          <button id="basculer-pdf" class="bouton secondaire" type="button" hidden>Masquer le PDF</button>
+          <a id="lien-pdf" class="bouton secondaire" target="_blank" rel="noopener" hidden>Ouvrir le PDF</a>
+        </div>
       </div>
-      <table class="liste">
-        <thead><tr><th>Fichier</th><th>État</th><th>Durée</th><th></th></tr></thead>
-        <tbody id="liste"></tbody>
-      </table>
+
+      <div id="resultat-vide" class="vide">
+        <strong>Aucune facture choisie</strong>
+        <span>Déposez une facture, puis cliquez dessus dans le suivi pour voir ce que le modèle a lu.</span>
+      </div>
+
+      <div id="contenu-resultat" class="resultat" hidden>
+        <div class="colonne-donnees">
+          <div class="titre-facture">
+            <span id="titre-resultat" class="nom-fichier"></span>
+            <span id="etat-resultat" class="etat"></span>
+          </div>
+
+          <!-- pendant la lecture : où en est la facture -->
+          <div id="progression" class="progression" hidden></div>
+
+          <!-- une fois lue : le résultat, modifiable -->
+          <div id="formulaire" hidden>
+            <div id="alertes" class="alertes"></div>
+
+            <h3>Informations de la facture</h3>
+            <div id="champs" class="champs"></div>
+
+            <div class="entete-sous">
+              <h3 id="titre-liste">Articles</h3>
+              <span id="controle" class="controle"></span>
+            </div>
+            <p class="aide">Une ligne par article de la facture (sans sous-totaux, taxes ni totaux). La somme des prix doit
+              faire le total, ou le total moins la taxe si les prix sont hors taxes.</p>
+            <div class="defilement">
+              <table class="articles">
+                <thead id="entete-articles"></thead>
+                <tbody id="articles"></tbody>
+              </table>
+            </div>
+            <button id="ajouter" class="bouton discret" type="button">+ Ajouter une ligne</button>
+          </div>
+        </div>
+
+        <div id="colonne-pdf" class="colonne-pdf">
+          <iframe id="apercu-pdf" title="Aperçu du PDF de la facture"></iframe>
+        </div>
+      </div>
+
+      <div id="barre-actions" class="barre-actions" hidden>
+        <div class="infos-enregistrement">
+          <span class="destination">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            <span id="destination"></span>
+          </span>
+          <span id="etat-enregistrement" class="etat-enregistrement"></span>
+        </div>
+        <button id="annuler" class="bouton secondaire" type="button" disabled>Annuler les modifications</button>
+        <button id="enregistrer" class="bouton" type="button" disabled
+                title="Écrit la facture en base et range le PDF d'après sa date de paiement">Enregistrer</button>
+      </div>
     </section>
 
-    <!-- 3. Résultat de la facture choisie : modifiable -->
-    <section id="bloc-resultat" class="carte" hidden>
-      <div class="entete-carte">
-        <h2 id="titre-resultat">Résultat</h2>
-        <a id="lien-pdf" class="bouton secondaire" target="_blank" rel="noopener">Ouvrir le PDF</a>
-      </div>
-      <div id="champs" class="champs"></div>
-
-      <div class="entete-carte">
-        <h3 id="titre-liste">Articles</h3>
-        <span id="controle" class="controle"></span>
-      </div>
-      <div class="defilement">
-        <table class="articles">
-          <thead id="entete-articles"></thead>
-          <tbody id="articles"></tbody>
-        </table>
-      </div>
-
-      <div class="actions">
-        <button id="ajouter" class="bouton secondaire" type="button">+ Ajouter une ligne</button>
-        <span class="espace"></span>
-        <span id="etat-enregistrement" class="etat-enregistrement"></span>
-        <button id="annuler" class="bouton secondaire" type="button" disabled>Annuler les modifications</button>
-        <button id="enregistrer" class="bouton" type="button" disabled>Enregistrer</button>
-      </div>
+    <!-- Aide -->
+    <section class="carte faq">
+      <h2>Questions fréquentes</h2>
+      <details>
+        <summary>Que se passe-t-il quand je clique sur « Enregistrer » ?</summary>
+        <p>Les valeurs affichées (avec vos corrections) remplacent celles du modèle. Le PDF est rangé dans
+          <code>Data/&lt;année&gt;/&lt;mois&gt;</code> d'après la date de paiement, et la facture est écrite dans la base
+          PostgreSQL, avec ses articles. Tant que vous n'avez pas enregistré, rien n'est rangé.</p>
+      </details>
+      <details>
+        <summary>Pourquoi un champ est-il en rouge ?</summary>
+        <p>Le modèle n'a pas trouvé la valeur (il a écrit « N/A »), un champ obligatoire est vide, le fournisseur est NETIS
+          (c'est le client), ou ce numéro de facture est déjà enregistré en base (doublon). Le message sous le champ dit
+          lequel. Un champ en bleu est un champ que vous avez modifié.</p>
+      </details>
+      <details>
+        <summary>Pourquoi la première facture est-elle plus lente ?</summary>
+        <p>Après un redémarrage ou une pause de plus de 30 minutes, l'outil de lecture des PDF et le modèle doivent d'abord
+          être chargés en mémoire : la première facture peut alors prendre quelques minutes. Les suivantes prennent
+          environ 1 minute chacune, et sont lues l'une après l'autre.</p>
+      </details>
+      <details>
+        <summary>Que signifie « Doublon » ?</summary>
+        <p>Une facture avec le même numéro est déjà enregistrée en base. Elle n'est ni enregistrée une seconde fois, ni
+          rangée. Si le numéro lu est faux, corrigez-le puis enregistrez.</p>
+      </details>
+      <details>
+        <summary>Mes factures disparaissent-elles de la liste ?</summary>
+        <p>La liste est vidée quand l'application redémarre. Les factures enregistrées restent dans la base et dans le
+          dossier Data ; pensez à enregistrer celles que vous avez vérifiées.</p>
+      </details>
     </section>
   </main>
 
+  <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
