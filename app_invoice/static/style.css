@@ -277,14 +277,6 @@ input.saisie.suspecte { border-color: var(--alerte); background: var(--alerte-fo
 }
 .icone:hover { color: var(--alerte); background: var(--alerte-fond); }
 
-/* Questions fréquentes */
-.faq h2 { margin-bottom: 8px; }
-.faq details { border-top: 1px solid var(--bord); }
-.faq details:first-of-type { border-top: none; }
-.faq summary { padding: 11px 0; cursor: pointer; font-weight: 600; font-size: .93rem; }
-.faq summary:hover { color: var(--accent); }
-.faq details p { margin: 0 0 14px; color: var(--discret); font-size: .9rem; max-width: 900px; }
-
 /* Notifications (après l'enregistrement) */
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 10; display: flex; flex-direction: column; gap: 8px; max-width: min(440px, calc(100vw - 40px)); }
 .toast {

@@ -140,39 +140,6 @@
                 title="Écrit la facture en base et range le PDF d'après sa date de paiement">Enregistrer</button>
       </div>
     </section>
-
-    <!-- Aide -->
-    <section class="carte faq">
-      <h2>Questions fréquentes</h2>
-      <details>
-        <summary>Que se passe-t-il quand je clique sur « Enregistrer » ?</summary>
-        <p>Les valeurs affichées (avec vos corrections) remplacent celles du modèle. Le PDF est rangé dans
-          <code>Data/&lt;année&gt;/&lt;mois&gt;</code> d'après la date de paiement, et la facture est écrite dans la base
-          PostgreSQL, avec ses articles. Tant que vous n'avez pas enregistré, rien n'est rangé.</p>
-      </details>
-      <details>
-        <summary>Pourquoi un champ est-il en rouge ?</summary>
-        <p>Le modèle n'a pas trouvé la valeur (il a écrit « N/A »), un champ obligatoire est vide, le fournisseur est NETIS
-          (c'est le client), ou ce numéro de facture est déjà enregistré en base (doublon). Le message sous le champ dit
-          lequel. Un champ en bleu est un champ que vous avez modifié.</p>
-      </details>
-      <details>
-        <summary>Pourquoi la première facture est-elle plus lente ?</summary>
-        <p>Après un redémarrage ou une pause de plus de 30 minutes, l'outil de lecture des PDF et le modèle doivent d'abord
-          être chargés en mémoire : la première facture peut alors prendre quelques minutes. Les suivantes prennent
-          environ 1 minute chacune, et sont lues l'une après l'autre.</p>
-      </details>
-      <details>
-        <summary>Que signifie « Doublon » ?</summary>
-        <p>Une facture avec le même numéro est déjà enregistrée en base. Elle n'est ni enregistrée une seconde fois, ni
-          rangée. Si le numéro lu est faux, corrigez-le puis enregistrez.</p>
-      </details>
-      <details>
-        <summary>Mes factures disparaissent-elles de la liste ?</summary>
-        <p>La liste est vidée quand l'application redémarre. Les factures enregistrées restent dans la base et dans le
-          dossier Data ; pensez à enregistrer celles que vous avez vérifiées.</p>
-      </details>
-    </section>
   </main>
 
   <div id="toasts" class="toasts" aria-live="polite"></div>
