@@ -10,7 +10,10 @@ name: facture-llm
 
 services:
   ollama:
-    build: ./ollama-cpu
+    build:
+      context: ./ollama-cpu
+      args:
+        OLLAMA_VERSION: ${OLLAMA_VERSION:-}    # vide : dernière version ; en production : version fixée (voir DEPLOIEMENT.md)
     image: ollama-cpu
     container_name: ollama
     restart: unless-stopped
