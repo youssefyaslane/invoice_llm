@@ -11,7 +11,8 @@ app_invoice/Data/<année>/<MM-MOIS>/<facture>.pdf (dossiers créés au besoin). 
 Base PostgreSQL (si app_invoice/.env la décrit, voir .env.example) : une ligne par facture dans <table> et une ligne
 par article dans <table>_articles (liée par facture_id), écrites à la fin de l'extraction puis mises à jour à chaque
 enregistrement ; schéma et tables créés s'ils n'existent pas, colonnes manquantes ajoutées s'ils existent. Jamais deux lignes avec le même numero_facture : si une facture enregistrée a déjà ce numéro,
-la nouvelle n'est ni écrite en base ni rangée dans Data (signalée « Doublon » dans la page).
+la nouvelle n'est ni écrite en base ni rangée dans Data (signalée « Doublon » dans la page). Sans numero_facture (vide ou
+N/A), la facture n'est ni écrite en base ni rangée : le numéro doit être complété avant d'enregistrer.
 
 Production (Docker : Ollama + application avec gunicorn, depuis le dossier du projet) :
     docker compose -f app_invoice/docker-compose.yml up -d --build                -> http://localhost:6001
@@ -166,7 +167,7 @@ def travailleur():
             f["statut"] = "fini"
             enregistrer(f)
             f["doublon"] = doublon(f)
-            if not f["doublon"]:
+            if not f["doublon"] and numero_normalise(f):   # sans numéro : pas de ligne en base
                 f["erreur_bd"] = sauvegarder_bd(f)
         except Exception as e:
             f["statut"], f["erreur"] = "erreur", str(e) or e.__class__.__name__
@@ -325,8 +326,9 @@ def valeur_sql(valeur, type_):
 def sauvegarder_bd(f):
     """Écrit (ou met à jour) la ligne de la facture et remplace ses articles. Renvoie le message d'erreur, ou None.
     Une erreur de la base n'empêche ni l'extraction ni l'enregistrement des fichiers.
-    Une ligne jamais enregistrée (dépôt abandonné) avec le même numéro est remplacée par celle-ci."""
-    if not bd_active():
+    Une ligne jamais enregistrée (dépôt abandonné) avec le même numéro est remplacée par celle-ci.
+    Sans numéro de facture, rien n'est écrit."""
+    if not bd_active() or not numero_normalise(f):
         return None
     resultat = f["resultat"] or {}
     valeurs = {"id": f["id"], "fichier": f["nom"]}
@@ -466,11 +468,14 @@ def deposer():
 @app.post("/api/factures/<id_>")
 def corriger(id_):
     """Bouton « Enregistrer » : le tableau (corrigé ou non) remplace le résultat du LLM (et son fichier .json), puis le
-    PDF est rangé dans Data d'après sa date de paiement ; numéro déjà enregistré en base : ni ligne, ni rangement."""
+    PDF est rangé dans Data d'après sa date de paiement ; numéro déjà enregistré en base : ni ligne, ni rangement.
+    Sans numéro de facture : refusé, rien n'est modifié."""
     if id_ not in factures:
         abort(404)
     f = factures[id_]
     donnees = request.get_json()
+    if not numero_normalise({"resultat": donnees}):
+        return jsonify(erreur="Numéro de facture obligatoire : complétez-le avant d'enregistrer"), 400
     f["modifie"] = f["modifie"] or donnees != f["resultat"]
     f["resultat"] = donnees
     enregistrer(f)

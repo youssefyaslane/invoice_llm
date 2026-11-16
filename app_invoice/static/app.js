@@ -352,6 +352,8 @@ function probleme(champ, texte) {
   const v = (texte || "").trim();
   if (NON_TROUVE.test(v)) return "Valeur non trouvée par le modèle : à compléter";
   if (!v && !champ.type.endsWith("?")) return "Champ vide : à compléter";
+  // sans numéro, la facture n'est ni écrite en base ni rangée : enregistrement impossible
+  if (!v && champ.nom === "numero_facture") return "Numéro obligatoire pour enregistrer : à compléter";
   // NETIS est le client : un fournisseur « NETIS » est une erreur du modèle
   if (champ.nom === "fournisseur" && /netis/i.test(v)) return "NETIS est le client, pas le fournisseur : à corriger";
   // numéro déjà enregistré en base (vérifié par le serveur) : rouge tant que le numéro n'est pas changé
@@ -466,7 +468,12 @@ function majBoutons() {
   const modifie = Boolean(brouillons[choisie]);
   const f = facture(choisie);
   // actif aussi sans modification tant que la facture n'est pas enregistrée (le PDF n'est rangé qu'à l'enregistrement)
-  $("enregistrer").disabled = !(f && f.statut === "fini" && (modifie || !f.enregistree));
+  // grisé sans numéro de facture (vide ou N/A) : le serveur refuserait
+  const numero = f && f.statut === "fini" ? String(donnees(f)?.numero_facture ?? "").trim() : "";
+  const sansNumero = !numero || NON_TROUVE.test(numero);
+  $("enregistrer").disabled = !(f && f.statut === "fini" && (modifie || !f.enregistree)) || sansNumero;
+  $("enregistrer").title = sansNumero && f?.statut === "fini" ? "Complétez le numéro de facture pour enregistrer"
+    : "Écrit la facture en base et range le PDF d'après sa date de paiement";
   $("annuler").disabled = !modifie;
 }
 
@@ -494,9 +501,10 @@ $("enregistrer").addEventListener("click", async () => {
     body: JSON.stringify(brouillons[id] ?? facture(id).resultat),
   });
   if (!rep.ok) {
-    $("etat-enregistrement").textContent = `Échec de l'enregistrement (${rep.status})`;
+    const raison = (await rep.json().catch(() => ({}))).erreur || `Échec de l'enregistrement (${rep.status})`;
+    $("etat-enregistrement").textContent = `⚠ ${raison}`;
     $("etat-enregistrement").className = "etat-enregistrement erreur";
-    return notifier(`Échec de l'enregistrement (${rep.status})`, "erreur");
+    return notifier(raison, "erreur");
   }
   const maj = await rep.json();
   factures = factures.map((f) => (f.id === id ? maj : f));
