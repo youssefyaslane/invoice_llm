@@ -4,10 +4,11 @@ Output/
 *.pdf
 *.xlsx
 
-# Secrets (accès SharePoint)
+# Secrets (accès SharePoint / OneDrive)
 .env
 *.pem
 *.pfx
+app_invoice/certificat/
 
 # Environnements Python et caches
 .venv/
