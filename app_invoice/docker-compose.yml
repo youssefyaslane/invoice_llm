@@ -52,7 +52,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"         # PostgreSQL installé sur ce serveur, hors Docker
     ports:
-      - "6001:6001"    # accessible depuis le réseau : http://<adresse du serveur>:6001
+      - "80:6001"      # http://invoice.netisgroup.net (port 80 : pas de port dans l'adresse)
+      - "6001:6001"    # ancienne adresse http://<adresse du serveur>:6001, toujours accessible
     volumes:
       - ../Output:/app/Output                       # PDF en attente et résultats (.json) : Output/app
       - ./Data:/app/app_invoice/Data                # PDF rangés par date de paiement : Data/2026/01-JAN/...
